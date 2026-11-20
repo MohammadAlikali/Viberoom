@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<resources>
+    <string name="firestore_database_id" translatable="false">ai-studio-android-viberoom-631b416b-4e04-4d6c-93e3-ca87324cef3d</string>
+    <string name="recaptcha_site_key" translatable="false">6Ld4MR4uAAAAAHRpJhQOAV2wkM5jL05yW5P92sMD</string>
+</resources>

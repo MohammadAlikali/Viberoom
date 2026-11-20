@@ -1,0 +1,6 @@
+{
+  "name": "VibeRoom",
+  "description": "A modern global social networking and voice room app to discover people and connect internationally.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

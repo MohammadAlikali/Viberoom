@@ -1,0 +1,253 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Represents a user's social and language-exchange profile on VibeRoom.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "country": { "type": "string" },
+        "countryCode": { "type": "string" },
+        "city": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "avatarData": { "type": "string" },
+        "avatarFrame": { "type": "string" },
+        "interests": { "type": "array" },
+        "languages": { "type": "array" },
+        "nativeLanguages": { "type": "array" },
+        "learningLanguages": { "type": "array" },
+        "proficiencyLevel": { "type": "string" },
+        "communicationGoal": { "type": "string" },
+        "isOnline": { "type": "boolean" },
+        "showOnlineStatus": { "type": "boolean" },
+        "lastSeenVisibility": { "type": "string", "enum": ["everyone", "contacts", "nobody"] },
+        "lastSeenAtMs": { "type": "integer" },
+        "isDiscoveryVisible": { "type": "boolean" },
+        "allowDirectMessages": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "username", "createdAt", "updatedAt"]
+    },
+    "BlockedUser": {
+      "title": "BlockedUser",
+      "type": "object",
+      "properties": {
+        "blockedUserId": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["blockedUserId", "createdAt"]
+    },
+    "SavedPost": {
+      "title": "SavedPost",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "contentPreview": { "type": "string" },
+        "savedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "savedAt"]
+    },
+    "VocabItem": {
+      "title": "VocabItem",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "wordOrPhrase": { "type": "string" },
+        "translation": { "type": "string" },
+        "language": { "type": "string" },
+        "exampleSentence": { "type": "string" },
+        "masteryLevel": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "wordOrPhrase", "translation", "language", "masteryLevel", "createdAt", "updatedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "type": "object",
+      "properties": {
+        "recipientId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "type": { "type": "string", "enum": ["friend_request", "friend_accepted", "post_like", "post_comment", "follow", "room_invite", "system"] },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "targetId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientId", "senderId", "senderName", "type", "title", "body", "isRead", "createdAt"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "type": "object",
+      "properties": {
+        "followerId": { "type": "string" },
+        "followingId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["followerId", "followingId", "createdAt"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "receiverName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "receiverId", "status", "createdAt", "updatedAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "type": "object",
+      "properties": {
+        "reporterId": { "type": "string" },
+        "targetType": { "type": "string", "enum": ["user", "voice_room", "post", "story"] },
+        "targetId": { "type": "string" },
+        "reason": { "type": "string" },
+        "details": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reporterId", "targetType", "targetId", "reason", "status", "createdAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "type": "object",
+      "properties": {
+        "participantIds": { "type": "array" },
+        "lastMessage": { "type": "string" },
+        "lastSenderId": { "type": "string" },
+        "pinnedMessageId": { "type": "string" },
+        "pinnedMessageText": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participantIds", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "text": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "mediaType": { "type": "string" },
+        "audioDurationSec": { "type": "integer" },
+        "replyToMessageId": { "type": "string" },
+        "replyToText": { "type": "string" },
+        "replyToSenderName": { "type": "string" },
+        "reactions": { "type": "object" },
+        "isEdited": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "isForwarded": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["conversationId", "senderId", "receiverId", "text", "createdAt"]
+    },
+    "VoiceRoom": {
+      "title": "VoiceRoom",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "hostId": { "type": "string" },
+        "hostName": { "type": "string" },
+        "hostCountry": { "type": "string" },
+        "hostFlagEmoji": { "type": "string" },
+        "hostAvatarColor": { "type": "string" },
+        "isLive": { "type": "boolean" },
+        "listenersCount": { "type": "integer" },
+        "speakersCount": { "type": "integer" },
+        "activeSpeakerId": { "type": "string" },
+        "tags": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "hostId", "hostName", "isLive", "listenersCount", "createdAt", "updatedAt"]
+    },
+    "Post": {
+      "title": "Post",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorFlag": { "type": "string" },
+        "authorCountry": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "hashtags": { "type": "array" },
+        "likesCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "likedUserIds": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "authorName", "content", "likesCount", "commentsCount", "createdAt", "updatedAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorFlag": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "authorId", "authorName", "content", "createdAt"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "24-hour ephemeral story published by a VibeRoom member.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorFlag": { "type": "string" },
+        "authorCountry": { "type": "string" },
+        "text": { "type": "string" },
+        "category": { "type": "string" },
+        "backgroundHex": { "type": "integer" },
+        "viewedByIds": { "type": "array" },
+        "reactions": { "type": "object" },
+        "expiresAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "authorName", "text", "expiresAtMs", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": { "$ref": "UserProfile" }, "description": "User profiles." },
+    "/users/{userId}/blocked/{blockedUserId}": { "schema": { "$ref": "BlockedUser" }, "description": "Blocked users." },
+    "/users/{userId}/saved_posts/{postId}": { "schema": { "$ref": "SavedPost" }, "description": "Bookmarked posts." },
+    "/users/{userId}/vocabulary/{vocabId}": { "schema": { "$ref": "VocabItem" }, "description": "Personal vocabulary flashcards." },
+    "/users/{userId}/notifications/{notificationId}": { "schema": { "$ref": "Notification" }, "description": "User notifications." },
+    "/follows/{followId}": { "schema": { "$ref": "Follow" }, "description": "Follow relationships." },
+    "/friend_requests/{requestId}": { "schema": { "$ref": "FriendRequest" }, "description": "Friend requests." },
+    "/reports/{reportId}": { "schema": { "$ref": "Report" }, "description": "Moderation reports." },
+    "/conversations/{conversationId}": { "schema": { "$ref": "Conversation" }, "description": "Conversations." },
+    "/conversations/{conversationId}/messages/{messageId}": { "schema": { "$ref": "ChatMessage" }, "description": "Messages." },
+    "/voice_rooms/{roomId}": { "schema": { "$ref": "VoiceRoom" }, "description": "Voice rooms." },
+    "/posts/{postId}": { "schema": { "$ref": "Post" }, "description": "Community feed posts." },
+    "/posts/{postId}/comments/{commentId}": { "schema": { "$ref": "Comment" }, "description": "Post comments." },
+    "/stories/{storyId}": { "schema": { "$ref": "Story" }, "description": "24-hour ephemeral stories." }
+  }
+}
