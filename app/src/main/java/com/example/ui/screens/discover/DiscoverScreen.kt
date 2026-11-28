@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -59,6 +61,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.FirestoreFriendRequest
 import com.example.model.UserProfile
 import com.example.model.VibeCatalogs
@@ -76,18 +79,18 @@ fun DiscoverScreen(
     viewModel: VibeRoomViewModel,
     modifier: Modifier = Modifier
 ) {
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val selectedCategory by viewModel.selectedCategory.collectAsState()
-    val onlyOnlineUsers by viewModel.onlyOnlineUsers.collectAsState()
-    val users by viewModel.filteredUsers.collectAsState()
-    val currentUser by viewModel.currentUser.collectAsState()
-    val appLanguage by viewModel.appLanguage.collectAsState()
-    val incomingRequests by viewModel.incomingFriendRequests.collectAsState()
-    val selectedCountryFilter by viewModel.selectedCountryFilter.collectAsState()
-    val languageMatchOnly by viewModel.languageMatchOnly.collectAsState()
-    val notifications by viewModel.notifications.collectAsState()
-    val dailyExercisesDone by viewModel.dailyExercisesDone.collectAsState()
-    val allUsers by viewModel.repository.users.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val onlyOnlineUsers by viewModel.onlyOnlineUsers.collectAsStateWithLifecycle()
+    val users by viewModel.filteredUsers.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val incomingRequests by viewModel.incomingFriendRequests.collectAsStateWithLifecycle()
+    val selectedCountryFilter by viewModel.selectedCountryFilter.collectAsStateWithLifecycle()
+    val languageMatchOnly by viewModel.languageMatchOnly.collectAsStateWithLifecycle()
+    val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val dailyExercisesDone by viewModel.dailyExercisesDone.collectAsStateWithLifecycle()
+    val allUsers by viewModel.repository.users.collectAsStateWithLifecycle()
     val leaderboardUsers = remember(allUsers, currentUser) {
         (listOf(currentUser) + allUsers.filter { it.id != currentUser.id })
             .distinctBy { it.id }
@@ -124,12 +127,19 @@ fun DiscoverScreen(
 
     val onlineCount = remember(users) { users.count { it.isOnline } }
 
-    LazyColumn(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .testTag("discover_screen"),
-        contentPadding = PaddingValues(bottom = 100.dp)
+            .imePadding(),
+        contentAlignment = Alignment.TopCenter
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 680.dp)
+                .testTag("discover_screen"),
+            contentPadding = PaddingValues(bottom = 24.dp)
+        ) {
         item {
             DiscoverHeader(
                 appLanguage = appLanguage,
@@ -295,7 +305,11 @@ fun DiscoverScreen(
                 }
             }
         } else {
-            items(users, key = { it.id }) { user ->
+            items(
+                items = users,
+                key = { it.id },
+                contentType = { "user_profile_card" }
+            ) { user ->
                 val isOwn = (user.id == currentUser.id)
                 UserProfileCard(
                     user = user,
@@ -312,6 +326,7 @@ fun DiscoverScreen(
                     matchPercent = if (!isOwn) VibeCatalogs.computeVibeMatchPercent(currentUser, user) else null
                 )
             }
+        }
         }
     }
 }

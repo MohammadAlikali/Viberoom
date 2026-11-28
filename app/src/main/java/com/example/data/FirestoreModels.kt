@@ -168,6 +168,19 @@ data class FirestoreVoiceRoom(
     val isPrivate: Boolean = false,
     val coHostIds: List<String> = emptyList(),
     val aiSummary: String? = null,
+    val lifecycleState: String = "LIVE",
+    val backgroundTheme: String = "aurora",
+    @get:PropertyName("isStageLocked")
+    @field:PropertyName("isStageLocked")
+    val isStageLocked: Boolean = false,
+    val moderatorIds: List<String> = emptyList(),
+    val bannedIds: List<String> = emptyList(),
+    val temporaryBans: Map<String, Long> = emptyMap(),
+    val invitedSpeakerIds: List<String> = emptyList(),
+    val successorHostId: String? = null,
+    val pinnedNotice: String? = null,
+    val maxAudioParticipants: Long = 6L,
+    val hostLastHeartbeatMs: Long = 0L,
     @ServerTimestamp
     val createdAt: Timestamp? = null,
     @ServerTimestamp
@@ -324,6 +337,9 @@ data class FirestoreRoomPeer(
     @get:PropertyName("isHandRaised")
     @field:PropertyName("isHandRaised")
     val isHandRaised: Boolean = false,
+    val hostMuted: Boolean = false,
+    val seatIndex: Int = -1,
+    val lastHeartbeatMs: Long = 0L,
     val flagEmoji: String = "🌐",
     val avatarFrame: String = "none",
     val avatarColorHex: Long = 0xFF8C52FF,
@@ -341,6 +357,44 @@ data class FirestoreRoomSignal(
     val sdp: String = "",
     val sdpMid: String? = null,
     val sdpMLineIndex: Int? = null,
+    @ServerTimestamp
+    val createdAt: Timestamp? = null
+)
+
+@IgnoreExtraProperties
+data class FirestoreVoiceRoomEvent(
+    @DocumentId
+    val id: String = "",
+    val roomId: String = "",
+    val type: String = "reaction", // entrance, gift, sound, reaction, chat, system
+    val senderId: String = "",
+    val senderName: String = "",
+    val senderFlag: String = "🌐",
+    val senderVipLevel: Int = 1,
+    val payloadId: String = "",
+    val text: String = "",
+    val recipientId: String? = null,
+    val recipientName: String? = null,
+    val giftValueXp: Long = 0L,
+    val timestampMs: Long = 0L,
+    @ServerTimestamp
+    val createdAt: Timestamp? = null
+)
+
+@IgnoreExtraProperties
+data class FirestoreVoiceRoomPoll(
+    @DocumentId
+    val id: String = "",
+    val roomId: String = "",
+    val question: String = "",
+    val options: List<String> = emptyList(),
+    val votes: Map<String, Int> = emptyMap(),
+    val createdById: String = "",
+    val createdByName: String = "",
+    @get:PropertyName("isClosed")
+    @field:PropertyName("isClosed")
+    val isClosed: Boolean = false,
+    val createdAtMs: Long = 0L,
     @ServerTimestamp
     val createdAt: Timestamp? = null
 )

@@ -222,7 +222,7 @@ fun LearningLanguagesRankPicker(
                     shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier
-                        .heightIn(min = 42.dp)
+                        .heightIn(min = 48.dp)
                         .testTag(menuButtonTag)
                 ) {
                     Icon(
@@ -347,13 +347,13 @@ fun LearningLanguagesRankPicker(
                                 }
                                 IconButton(
                                     onClick = { onRemoveLanguage(langName) },
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = AppStrings.t("close", appLanguage),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }

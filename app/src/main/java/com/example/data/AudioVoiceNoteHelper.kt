@@ -1,6 +1,9 @@
 package com.example.data
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
@@ -12,10 +15,20 @@ data class RecordedVoiceNote(
     val durationSec: Int
 )
 
+sealed class VoiceNoteStopResult {
+    data class Success(val note: RecordedVoiceNote) : VoiceNoteStopResult()
+    data class TooLarge(val maxBytes: Int) : VoiceNoteStopResult()
+    object Failed : VoiceNoteStopResult()
+}
+
 class VoiceNoteRecorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
     private var outputFile: File? = null
     private var startTimeMs: Long = 0L
+
+    companion object {
+        const val MAX_VOICE_NOTE_BYTES = 480_000
+    }
 
     fun startRecording(): Boolean {
         stopSilently()
@@ -47,27 +60,39 @@ class VoiceNoteRecorder(private val context: Context) {
         }
     }
 
-    fun stopAndEncode(): RecordedVoiceNote? {
-        val file = outputFile ?: return null
+    fun stopAndEncodeDetailed(): VoiceNoteStopResult {
+        val file = outputFile ?: return VoiceNoteStopResult.Failed
         val elapsedSec = ((System.currentTimeMillis() - startTimeMs) / 1000L).toInt().coerceIn(1, 600)
         return try {
             recorder?.stop()
             recorder?.release()
             recorder = null
-            if (!file.exists() || file.length() == 0L) return null
+            if (!file.exists() || file.length() == 0L) {
+                file.delete()
+                outputFile = null
+                return VoiceNoteStopResult.Failed
+            }
             val bytes = file.readBytes()
             file.delete()
             outputFile = null
-            if (bytes.size > 480_000) return null
+            if (bytes.size > MAX_VOICE_NOTE_BYTES) {
+                return VoiceNoteStopResult.TooLarge(MAX_VOICE_NOTE_BYTES)
+            }
             val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-            RecordedVoiceNote(
-                dataUri = "data:audio/mp4;base64,$b64",
-                durationSec = elapsedSec
+            VoiceNoteStopResult.Success(
+                RecordedVoiceNote(
+                    dataUri = "data:audio/mp4;base64,$b64",
+                    durationSec = elapsedSec
+                )
             )
         } catch (_: Exception) {
             stopSilently()
-            null
+            VoiceNoteStopResult.Failed
         }
+    }
+
+    fun stopAndEncode(): RecordedVoiceNote? {
+        return (stopAndEncodeDetailed() as? VoiceNoteStopResult.Success)?.note
     }
 
     fun cancelRecording() {
@@ -92,6 +117,8 @@ class VoiceNoteRecorder(private val context: Context) {
 object VoiceNotePlayer {
     private var mediaPlayer: MediaPlayer? = null
     private var activeId: String? = null
+    private var appAudioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
 
     fun playOrToggle(
         context: Context,
@@ -119,8 +146,18 @@ object VoiceNotePlayer {
             return
         }
 
+        val am = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        appAudioManager = am
+        requestTransientFocus(am)
+
         try {
             val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
                 setDataSource(sourcePath)
                 setOnPreparedListener {
                     it.start()
@@ -156,5 +193,49 @@ object VoiceNotePlayer {
         }
         mediaPlayer = null
         activeId = null
+        abandonTransientFocus()
+    }
+
+    private fun requestTransientFocus(am: AudioManager?) {
+        if (am == null) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setOnAudioFocusChangeListener { change ->
+                        if (change == AudioManager.AUDIOFOCUS_LOSS ||
+                            change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                        ) {
+                            stop()
+                        }
+                    }
+                    .build()
+                focusRequest = req
+                am.requestAudioFocus(req)
+            } else {
+                @Suppress("DEPRECATION")
+                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun abandonTransientFocus() {
+        val am = appAudioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                focusRequest?.let { am.abandonAudioFocusRequest(it) }
+                focusRequest = null
+            } else {
+                @Suppress("DEPRECATION")
+                am.abandonAudioFocus(null)
+            }
+        } catch (_: Exception) {
+        }
     }
 }

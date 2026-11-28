@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,11 +37,11 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,10 +67,11 @@ private enum class ChatFilter(val key: String, val tagSuffix: String) {
 @Composable
 fun ChatListScreen(
     viewModel: VibeRoomViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedConversationId: String? = null
 ) {
-    val conversations by viewModel.conversations.collectAsState()
-    val appLanguage by viewModel.appLanguage.collectAsState()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
     var activeFilter by remember { mutableStateOf(ChatFilter.ALL) }
 
@@ -95,6 +97,7 @@ fun ChatListScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .testTag("chat_list_screen"),
         contentAlignment = Alignment.TopCenter
     ) {
@@ -251,12 +254,17 @@ fun ChatListScreen(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp, top = 4.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredConversations, key = { it.id }) { conversation ->
+                    items(
+                        items = filteredConversations,
+                        key = { it.id },
+                        contentType = { "conversation_item" }
+                    ) { conversation ->
                         ConversationItem(
                             conversation = conversation,
+                            isSelected = conversation.id == selectedConversationId,
                             onClick = { viewModel.openChat(conversation.id) }
                         )
                     }
@@ -270,7 +278,8 @@ fun ChatListScreen(
 fun ConversationItem(
     conversation: Conversation,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isSelected: Boolean = false
 ) {
     val showPresence = conversation.peerUser.canShowPresenceTo(conversation.peerUser.isFollowing)
     val isUnread = conversation.unreadCount > 0
@@ -279,13 +288,17 @@ fun ConversationItem(
 
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = if (isUnread) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.22f)
-        } else {
-            MaterialTheme.colorScheme.surface
+        color = when {
+            isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
+            isUnread -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.22f)
+            else -> MaterialTheme.colorScheme.surface
         },
-        border = if (isLight) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)) else null,
-        tonalElevation = if (isUnread) 2.dp else 0.5.dp,
+        border = when {
+            isSelected -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            isLight -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f))
+            else -> null
+        },
+        tonalElevation = if (isSelected || isUnread) 2.dp else 0.5.dp,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 4.dp)

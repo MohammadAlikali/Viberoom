@@ -185,27 +185,39 @@ class FirestoreCallRepository(private val db: FirebaseFirestore) {
         isSpeaker: Boolean,
         isMuted: Boolean,
         isHandRaised: Boolean = false,
+        seatIndex: Int = -1,
         flagEmoji: String = "🌐",
         avatarFrame: String = "none",
-        avatarColorHex: Long = 0xFF8C52FF
+        avatarColorHex: Long = 0xFF8C52FF,
+        lastHeartbeatMs: Long = System.currentTimeMillis()
     ): Result<Unit> {
         return try {
             val uid = requireUid()
-            db.collection("voice_rooms").document(roomId)
+            val docRef = db.collection("voice_rooms").document(roomId)
                 .collection("peers").document(uid)
-                .set(
-                    mapOf(
-                        "userId" to uid,
-                        "displayName" to displayName.take(100),
-                        "isSpeaker" to isSpeaker,
-                        "isMuted" to isMuted,
-                        "isHandRaised" to isHandRaised,
-                        "flagEmoji" to flagEmoji.take(10),
-                        "avatarFrame" to avatarFrame.take(40),
-                        "avatarColorHex" to avatarColorHex,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
+            val existingSnap = try { docRef.get().await() } catch (_: Exception) { null }
+            val existingHostMuted = existingSnap?.getBoolean("hostMuted") == true
+            val safeMuted = if (existingHostMuted) true else isMuted
+
+            val payload = mutableMapOf<String, Any>(
+                "userId" to uid,
+                "displayName" to displayName.take(100),
+                "isSpeaker" to isSpeaker,
+                "isMuted" to safeMuted,
+                "isHandRaised" to isHandRaised,
+                "seatIndex" to seatIndex.coerceIn(-1, 5),
+                "flagEmoji" to flagEmoji.take(10),
+                "avatarFrame" to avatarFrame.take(40),
+                "avatarColorHex" to avatarColorHex,
+                "lastHeartbeatMs" to lastHeartbeatMs,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (existingSnap == null || !existingSnap.exists()) {
+                payload["hostMuted"] = false
+                docRef.set(payload).await()
+            } else {
+                docRef.set(payload, com.google.firebase.firestore.SetOptions.merge()).await()
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -215,25 +227,117 @@ class FirestoreCallRepository(private val db: FirebaseFirestore) {
         }
     }
 
+    suspend fun heartbeatRoomPeer(
+        roomId: String,
+        lastHeartbeatMs: Long = System.currentTimeMillis()
+    ): Result<Unit> {
+        return try {
+            val uid = requireUid()
+            db.collection("voice_rooms").document(roomId)
+                .collection("peers").document(uid)
+                .update(
+                    mapOf(
+                        "lastHeartbeatMs" to lastHeartbeatMs,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun muteOrRestrictPeer(
+        roomId: String,
+        targetUid: String,
+        hostMuted: Boolean
+    ): Result<Unit> {
+        return try {
+            requireUid()
+            val updates = if (hostMuted) {
+                mapOf(
+                    "isMuted" to true,
+                    "hostMuted" to true,
+                    "isHandRaised" to false,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            } else {
+                // Only lift the host-mute restriction; never force-unmute another user's microphone.
+                mapOf(
+                    "hostMuted" to false,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            }
+            db.collection("voice_rooms").document(roomId)
+                .collection("peers").document(targetUid)
+                .update(updates)
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, "voice_rooms/$roomId/peers/$targetUid")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setPeerStageState(
+        roomId: String,
+        targetUid: String,
+        isSpeaker: Boolean,
+        seatIndex: Int,
+        isHandRaised: Boolean = false
+    ): Result<Unit> {
+        return try {
+            requireUid()
+            val updates = mutableMapOf<String, Any>(
+                "isSpeaker" to isSpeaker,
+                "seatIndex" to (if (isSpeaker) seatIndex.coerceIn(0, 5) else -1),
+                "isHandRaised" to isHandRaised,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (!isSpeaker) {
+                updates["isMuted"] = true
+            }
+            db.collection("voice_rooms").document(roomId)
+                .collection("peers").document(targetUid)
+                .update(updates)
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, "voice_rooms/$roomId/peers/$targetUid")
+            Result.failure(e)
+        }
+    }
+
     suspend fun moderateRoomPeer(
         roomId: String,
         targetUid: String,
         isSpeaker: Boolean,
         isMuted: Boolean,
-        isHandRaised: Boolean = false
+        isHandRaised: Boolean = false,
+        seatIndex: Int? = null
     ): Result<Unit> {
         return try {
             requireUid()
+            val updates = mutableMapOf<String, Any>(
+                "isSpeaker" to isSpeaker,
+                "isHandRaised" to isHandRaised,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (isMuted) {
+                updates["isMuted"] = true
+            }
+            if (seatIndex != null) {
+                updates["seatIndex"] = seatIndex.coerceIn(-1, 5)
+            }
             db.collection("voice_rooms").document(roomId)
                 .collection("peers").document(targetUid)
-                .update(
-                    mapOf(
-                        "isSpeaker" to isSpeaker,
-                        "isMuted" to isMuted,
-                        "isHandRaised" to isHandRaised,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
+                .update(updates).await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -311,11 +415,20 @@ class FirestoreCallRepository(private val db: FirebaseFirestore) {
             emit(emptyList())
             return@flow
         }
+        val typeOrder = mapOf("offer" to 0, "answer" to 1, "ice" to 2)
         emitAll(
             db.collection("voice_rooms").document(roomId).collection("signals")
                 .whereEqualTo("toUserId", myUid)
                 .snapshots()
-                .map { snap -> snap.toObjects(FirestoreRoomSignal::class.java) }
+                .map { snap ->
+                    snap.toObjects(FirestoreRoomSignal::class.java)
+                        .sortedWith(
+                            compareBy<FirestoreRoomSignal>(
+                                { it.createdAt?.toDate()?.time ?: Long.MAX_VALUE },
+                                { typeOrder[it.type] ?: 3 }
+                            )
+                        )
+                }
                 .catch { error ->
                     if (error is CancellationException) throw error
                     emit(emptyList())
@@ -323,7 +436,27 @@ class FirestoreCallRepository(private val db: FirebaseFirestore) {
         )
     }
 
+    suspend fun clearRoomSignalsForUser(roomId: String, myUid: String) {
+        if (auth.currentUser == null || myUid.isBlank() || roomId.isBlank()) return
+        val signalsRef = db.collection("voice_rooms").document(roomId).collection("signals")
+        try {
+            val incoming = signalsRef.whereEqualTo("toUserId", myUid).get().await()
+            incoming.documents.forEach { doc ->
+                try { doc.reference.delete().await() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {
+        }
+        try {
+            val outgoing = signalsRef.whereEqualTo("fromUserId", myUid).get().await()
+            outgoing.documents.forEach { doc ->
+                try { doc.reference.delete().await() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     suspend fun deleteRoomSignal(roomId: String, signalId: String) {
+        if (signalId.isBlank()) return
         try {
             db.collection("voice_rooms").document(roomId)
                 .collection("signals").document(signalId)

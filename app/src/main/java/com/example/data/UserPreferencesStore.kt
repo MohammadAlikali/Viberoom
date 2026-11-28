@@ -6,9 +6,12 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.model.EntranceStyle
 import com.example.ui.localization.AppLanguage
 import com.example.ui.theme.AppTheme
 import com.example.ui.theme.ThemeMode
@@ -35,7 +38,13 @@ data class StoredAppPreferences(
     val lastStudyDate: String = "",
     val defaultTranslateLanguage: String = "",
     val autoTranslateChat: Boolean = false,
-    val showTranslationNotes: Boolean = true
+    val showTranslationNotes: Boolean = true,
+    val defaultEntranceStyle: String = EntranceStyle.STANDARD.id,
+    val soundEffectsVolume: Float = 0.85f,
+    val enableGiftEffects: Boolean = true,
+    val enableEntranceAnimations: Boolean = true,
+    val lowPowerVisualMode: Boolean = false,
+    val favoriteSoundIds: Set<String> = setOf("welcome", "applause", "celebration")
 )
 
 class UserPreferencesStore(private val context: Context) {
@@ -54,6 +63,12 @@ class UserPreferencesStore(private val context: Context) {
         val DEFAULT_TRANSLATE_LANGUAGE = stringPreferencesKey("default_translate_language")
         val AUTO_TRANSLATE_CHAT = booleanPreferencesKey("auto_translate_chat")
         val SHOW_TRANSLATION_NOTES = booleanPreferencesKey("show_translation_notes")
+        val DEFAULT_ENTRANCE_STYLE = stringPreferencesKey("vr_default_entrance_style")
+        val SOUND_EFFECTS_VOLUME = floatPreferencesKey("vr_sound_effects_volume")
+        val ENABLE_GIFT_EFFECTS = booleanPreferencesKey("vr_enable_gift_effects")
+        val ENABLE_ENTRANCE_ANIMATIONS = booleanPreferencesKey("vr_enable_entrance_animations")
+        val LOW_POWER_VISUAL_MODE = booleanPreferencesKey("vr_low_power_visual_mode")
+        val FAVORITE_SOUND_IDS = stringSetPreferencesKey("vr_favorite_sound_ids")
     }
 
     private fun todayDateKey(): String =
@@ -106,7 +121,13 @@ class UserPreferencesStore(private val context: Context) {
                 lastStudyDate = savedDate,
                 defaultTranslateLanguage = prefs[Keys.DEFAULT_TRANSLATE_LANGUAGE].orEmpty(),
                 autoTranslateChat = prefs[Keys.AUTO_TRANSLATE_CHAT] ?: false,
-                showTranslationNotes = prefs[Keys.SHOW_TRANSLATION_NOTES] ?: true
+                showTranslationNotes = prefs[Keys.SHOW_TRANSLATION_NOTES] ?: true,
+                defaultEntranceStyle = prefs[Keys.DEFAULT_ENTRANCE_STYLE] ?: EntranceStyle.STANDARD.id,
+                soundEffectsVolume = (prefs[Keys.SOUND_EFFECTS_VOLUME] ?: 0.85f).coerceIn(0f, 1f),
+                enableGiftEffects = prefs[Keys.ENABLE_GIFT_EFFECTS] ?: true,
+                enableEntranceAnimations = prefs[Keys.ENABLE_ENTRANCE_ANIMATIONS] ?: true,
+                lowPowerVisualMode = prefs[Keys.LOW_POWER_VISUAL_MODE] ?: false,
+                favoriteSoundIds = prefs[Keys.FAVORITE_SOUND_IDS] ?: setOf("welcome", "applause", "celebration")
             )
         }
 
@@ -173,6 +194,24 @@ class UserPreferencesStore(private val context: Context) {
         }
     }
 
+    suspend fun saveVoiceRoomPreferences(
+        defaultEntranceStyle: String? = null,
+        soundEffectsVolume: Float? = null,
+        enableGiftEffects: Boolean? = null,
+        enableEntranceAnimations: Boolean? = null,
+        lowPowerVisualMode: Boolean? = null,
+        favoriteSoundIds: Set<String>? = null
+    ) {
+        context.applicationContext.vibeRoomDataStore.edit { prefs ->
+            if (defaultEntranceStyle != null) prefs[Keys.DEFAULT_ENTRANCE_STYLE] = defaultEntranceStyle
+            if (soundEffectsVolume != null) prefs[Keys.SOUND_EFFECTS_VOLUME] = soundEffectsVolume.coerceIn(0f, 1f)
+            if (enableGiftEffects != null) prefs[Keys.ENABLE_GIFT_EFFECTS] = enableGiftEffects
+            if (enableEntranceAnimations != null) prefs[Keys.ENABLE_ENTRANCE_ANIMATIONS] = enableEntranceAnimations
+            if (lowPowerVisualMode != null) prefs[Keys.LOW_POWER_VISUAL_MODE] = lowPowerVisualMode
+            if (favoriteSoundIds != null) prefs[Keys.FAVORITE_SOUND_IDS] = favoriteSoundIds
+        }
+    }
+
     suspend fun recordLearningActivity() {
         val today = todayDateKey()
         context.applicationContext.vibeRoomDataStore.edit { prefs ->
@@ -187,6 +226,14 @@ class UserPreferencesStore(private val context: Context) {
             prefs[Keys.LAST_STUDY_DATE] = today
             prefs[Keys.DAILY_EXERCISES_DONE] = prevCount + 1
             prefs[Keys.STUDY_STREAK_DAYS] = nextStreak
+        }
+    }
+
+    suspend fun clearUserProgress() {
+        context.applicationContext.vibeRoomDataStore.edit { prefs ->
+            prefs.remove(Keys.DAILY_EXERCISES_DONE)
+            prefs.remove(Keys.STUDY_STREAK_DAYS)
+            prefs.remove(Keys.LAST_STUDY_DATE)
         }
     }
 }

@@ -17,6 +17,7 @@ import com.google.firebase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -226,8 +227,10 @@ object MediaAttachmentHelper {
                 .child(uid)
                 .child("${UUID.randomUUID()}.mp4")
 
-            storageRef.putFile(uri).await()
-            val downloadUrl = storageRef.downloadUrl.await().toString()
+            val downloadUrl = withTimeout(15_000L) {
+                storageRef.putFile(uri).await()
+                storageRef.downloadUrl.await().toString()
+            }
             VideoAttachmentResult.Ready(mediaUrl = downloadUrl)
         } catch (e: Exception) {
             val fallbackHint = if (e.message?.contains("Object does not exist", ignoreCase = true) == true ||

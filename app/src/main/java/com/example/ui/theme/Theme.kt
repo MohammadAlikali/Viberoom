@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.example.ui.localization.AppLanguage
 
 enum class ThemeMode(val id: String) {
     SYSTEM("system"),
@@ -512,6 +513,7 @@ fun VibeRoomTheme(
     appTheme: AppTheme = AppTheme.PURE_WHITE,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     accentColorHex: Long? = null,
+    appLanguage: AppLanguage = AppLanguage.ENGLISH,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -527,45 +529,16 @@ fun VibeRoomTheme(
         customAccentHex = accentColorHex
     )
 
-    val animSpec = tween<Color>(durationMillis = 240)
+    // Animate only the primary visual canvas tokens to avoid 18 simultaneous root recompositions per frame
+    val animSpec = tween<Color>(durationMillis = 150)
     val primary by animateColorAsState(targetScheme.primary, animSpec, label = "c_primary")
-    val onPrimary by animateColorAsState(targetScheme.onPrimary, animSpec, label = "c_onPrimary")
-    val primaryContainer by animateColorAsState(targetScheme.primaryContainer, animSpec, label = "c_primaryContainer")
-    val onPrimaryContainer by animateColorAsState(targetScheme.onPrimaryContainer, animSpec, label = "c_onPrimaryContainer")
-    val secondary by animateColorAsState(targetScheme.secondary, animSpec, label = "c_secondary")
-    val onSecondary by animateColorAsState(targetScheme.onSecondary, animSpec, label = "c_onSecondary")
-    val secondaryContainer by animateColorAsState(targetScheme.secondaryContainer, animSpec, label = "c_secondaryContainer")
-    val onSecondaryContainer by animateColorAsState(targetScheme.onSecondaryContainer, animSpec, label = "c_onSecondaryContainer")
-    val tertiary by animateColorAsState(targetScheme.tertiary, animSpec, label = "c_tertiary")
-    val onTertiary by animateColorAsState(targetScheme.onTertiary, animSpec, label = "c_onTertiary")
     val background by animateColorAsState(targetScheme.background, animSpec, label = "c_background")
-    val onBackground by animateColorAsState(targetScheme.onBackground, animSpec, label = "c_onBackground")
     val surface by animateColorAsState(targetScheme.surface, animSpec, label = "c_surface")
-    val onSurface by animateColorAsState(targetScheme.onSurface, animSpec, label = "c_onSurface")
-    val surfaceVariant by animateColorAsState(targetScheme.surfaceVariant, animSpec, label = "c_surfaceVariant")
-    val onSurfaceVariant by animateColorAsState(targetScheme.onSurfaceVariant, animSpec, label = "c_onSurfaceVariant")
-    val outline by animateColorAsState(targetScheme.outline, animSpec, label = "c_outline")
-    val outlineVariant by animateColorAsState(targetScheme.outlineVariant, animSpec, label = "c_outlineVariant")
 
     val animatedScheme = targetScheme.copy(
         primary = primary,
-        onPrimary = onPrimary,
-        primaryContainer = primaryContainer,
-        onPrimaryContainer = onPrimaryContainer,
-        secondary = secondary,
-        onSecondary = onSecondary,
-        secondaryContainer = secondaryContainer,
-        onSecondaryContainer = onSecondaryContainer,
-        tertiary = tertiary,
-        onTertiary = onTertiary,
         background = background,
-        onBackground = onBackground,
-        surface = surface,
-        onSurface = onSurface,
-        surfaceVariant = surfaceVariant,
-        onSurfaceVariant = onSurfaceVariant,
-        outline = outline,
-        outlineVariant = outlineVariant
+        surface = surface
     )
 
     val view = LocalView.current
@@ -581,7 +554,7 @@ fun VibeRoomTheme(
 
     MaterialTheme(
         colorScheme = animatedScheme,
-        typography = VibeRoomTypography,
+        typography = vibeTypographyFor(appLanguage),
         content = content
     )
 }

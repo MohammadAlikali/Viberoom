@@ -5,7 +5,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import com.example.model.UserProfile
 import com.example.ui.components.EditBioAndInterestsContent
 import com.example.ui.components.UserProfileCard
@@ -162,7 +161,6 @@ class UserProfileCardTest {
 
         // Click Save Changes button
         composeTestRule.onNodeWithTag("save_profile_button", useUnmergedTree = true)
-            .performScrollTo()
             .performClick()
         assertEquals("Exploring new places and soundscapes.", savedBio)
         assertEquals(listOf("Music", "Travel"), savedInterests)

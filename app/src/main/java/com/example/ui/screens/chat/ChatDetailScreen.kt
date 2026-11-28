@@ -19,16 +19,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -75,6 +82,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -86,6 +94,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -93,8 +102,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.VoiceNotePlayer
 import com.example.data.VoiceNoteRecorder
+import com.example.data.VoiceNoteStopResult
 import com.example.model.ChatMessage
 import com.example.model.VibeCatalogs
 import com.example.ui.VibeRoomViewModel
@@ -119,30 +130,31 @@ fun ChatDetailScreen(
     conversationId: String,
     viewModel: VibeRoomViewModel,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showBackButton: Boolean = true
 ) {
-    BackHandler { onBack() }
+    BackHandler(enabled = showBackButton) { onBack() }
 
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
-    val conversations by viewModel.conversations.collectAsState()
-    val allMessages by viewModel.messages.collectAsState()
-    val currentUser by viewModel.currentUser.collectAsState()
-    val allUsers by viewModel.filteredUsers.collectAsState()
-    val appLanguage by viewModel.appLanguage.collectAsState()
-    val inlineTranslations by viewModel.inlineTranslations.collectAsState()
-    val inlineTranslatingKeys by viewModel.inlineTranslatingKeys.collectAsState()
-    val inlineTranslationErrors by viewModel.inlineTranslationErrors.collectAsState()
-    val isMediaUploading by viewModel.isMediaUploading.collectAsState()
-    val chatTranslateLanguage by viewModel.chatTranslateLanguage.collectAsState()
-    val defaultTranslateLanguage by viewModel.defaultTranslateLanguage.collectAsState()
-    val autoTranslateChat by viewModel.autoTranslateChat.collectAsState()
-    val showTranslationNotes by viewModel.showTranslationNotes.collectAsState()
-    val disappearingTtlMs by viewModel.chatDisappearingTtlMs.collectAsState()
-    val aiSmartReplies by viewModel.aiSmartReplies.collectAsState()
-    val isLoadingSmartReplies by viewModel.isLoadingSmartReplies.collectAsState()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val allMessages by viewModel.messages.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val allUsers by viewModel.filteredUsers.collectAsStateWithLifecycle()
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val inlineTranslations by viewModel.inlineTranslations.collectAsStateWithLifecycle()
+    val inlineTranslatingKeys by viewModel.inlineTranslatingKeys.collectAsStateWithLifecycle()
+    val inlineTranslationErrors by viewModel.inlineTranslationErrors.collectAsStateWithLifecycle()
+    val isMediaUploading by viewModel.isMediaUploading.collectAsStateWithLifecycle()
+    val chatTranslateLanguage by viewModel.chatTranslateLanguage.collectAsStateWithLifecycle()
+    val defaultTranslateLanguage by viewModel.defaultTranslateLanguage.collectAsStateWithLifecycle()
+    val autoTranslateChat by viewModel.autoTranslateChat.collectAsStateWithLifecycle()
+    val showTranslationNotes by viewModel.showTranslationNotes.collectAsStateWithLifecycle()
+    val disappearingTtlMs by viewModel.chatDisappearingTtlMs.collectAsStateWithLifecycle()
+    val aiSmartReplies by viewModel.aiSmartReplies.collectAsStateWithLifecycle()
+    val isLoadingSmartReplies by viewModel.isLoadingSmartReplies.collectAsStateWithLifecycle()
 
     val conversation = conversations.firstOrNull { it.id == conversationId }
     val allChatMessages = allMessages[conversationId].orEmpty()
@@ -247,17 +259,49 @@ fun ChatDetailScreen(
         }
     }
 
-    LaunchedEffect(timelineItems.size) {
-        if (timelineItems.isNotEmpty()) {
-            listState.animateScrollToItem(timelineItems.lastIndex)
-        }
-    }
+    val isImeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    var lastSendClickAtMs by remember { mutableLongStateOf(0L) }
+    var hasInitializedScroll by remember(conversationId) { mutableStateOf(false) }
+    var prevItemCount by remember(conversationId) { mutableIntStateOf(0) }
 
     val showScrollToBottom by remember {
         derivedStateOf {
             val total = timelineItems.size
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             total > 4 && lastVisible < total - 2
+        }
+    }
+
+    LaunchedEffect(timelineItems.size, chatSearchQuery) {
+        val count = timelineItems.size
+        if (count == 0) {
+            prevItemCount = 0
+            return@LaunchedEffect
+        }
+        if (chatSearchQuery.isNotBlank()) {
+            prevItemCount = count
+            return@LaunchedEffect
+        }
+        if (!hasInitializedScroll) {
+            hasInitializedScroll = true
+            prevItemCount = count
+            listState.scrollToItem(count - 1)
+            return@LaunchedEffect
+        }
+        if (count > prevItemCount) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val wasNearBottom = lastVisible >= prevItemCount - 3
+            val newestMessage = (timelineItems.lastOrNull() as? ChatListEntry.Bubble)?.message
+            if (wasNearBottom || newestMessage?.isMine == true) {
+                listState.animateScrollToItem(count - 1)
+            }
+        }
+        prevItemCount = count
+    }
+
+    LaunchedEffect(isImeOpen) {
+        if (isImeOpen && timelineItems.isNotEmpty() && chatSearchQuery.isBlank() && !showScrollToBottom) {
+            listState.scrollToItem(timelineItems.lastIndex)
         }
     }
 
@@ -269,16 +313,37 @@ fun ChatDetailScreen(
         )
     }
 
-    Column(
-        modifier = modifier
+    val rootInsetsModifier = if (showBackButton) {
+        modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(
+                WindowInsets.navigationBars
+                    .union(WindowInsets.displayCutout)
+                    .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
+            )
             .imePadding()
+    } else {
+        modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .imePadding()
+    }
+
+    val topAppBarInsets = if (showBackButton) {
+        TopAppBarDefaults.windowInsets.union(
+            WindowInsets.displayCutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+        )
+    } else {
+        WindowInsets(0, 0, 0, 0)
+    }
+
+    Column(
+        modifier = rootInsetsModifier
             .testTag("chat_detail_screen")
     ) {
         TopAppBar(
+            windowInsets = topAppBarInsets,
             title = {
                 if (conversation != null) {
                     val peer = conversation.peerUser
@@ -327,11 +392,13 @@ fun ChatDetailScreen(
                 }
             },
             navigationIcon = {
-                IconButton(onClick = onBack, modifier = Modifier.testTag("chat_back_button")) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = AppStrings.t("back", appLanguage)
-                    )
+                if (showBackButton) {
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("chat_back_button")) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = AppStrings.t("back", appLanguage)
+                        )
+                    }
                 }
             },
             actions = {
@@ -469,7 +536,10 @@ fun ChatDetailScreen(
                     )
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -652,12 +722,12 @@ fun ChatDetailScreen(
                     }
                     IconButton(
                         onClick = { viewModel.pinMessage(conversationId, null, null) },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = AppStrings.t("unpin_label", appLanguage),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -679,7 +749,16 @@ fun ChatDetailScreen(
                 contentPadding = PaddingValues(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(timelineItems, key = { it.key }) { item ->
+                items(
+                    items = timelineItems,
+                    key = { it.key },
+                    contentType = { entry ->
+                        when (entry) {
+                            is ChatListEntry.DateHeader -> "date_header"
+                            is ChatListEntry.Bubble -> "chat_bubble"
+                        }
+                    }
+                ) { item ->
                     when (item) {
                         is ChatListEntry.DateHeader -> {
                             DateSeparatorChip(label = item.label)
@@ -852,19 +931,25 @@ fun ChatDetailScreen(
                 }
             }
 
-            icebreakers.forEach { prompt ->
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.clickable {
-                        viewModel.sendMessage(conversationId, prompt)
+            if (!isImeOpen && inputMessage.isEmpty()) {
+                icebreakers.forEach { prompt ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.clickable {
+                            val now = System.currentTimeMillis()
+                            if (now - lastSendClickAtMs >= 900L) {
+                                lastSendClickAtMs = now
+                                viewModel.sendMessage(conversationId, prompt)
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = prompt,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
                     }
-                ) {
-                    Text(
-                        text = prompt,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
                 }
             }
         }
@@ -990,13 +1075,24 @@ fun ChatDetailScreen(
                 IconButton(
                     onClick = {
                         isRecordingVoice = false
-                        val recorded = voiceRecorder.stopAndEncode()
-                        if (recorded != null) {
-                            viewModel.sendVoiceMessage(
-                                conversationId = conversationId,
-                                durationSec = recorded.durationSec,
-                                mediaData = recorded.dataUri
-                            )
+                        when (val result = voiceRecorder.stopAndEncodeDetailed()) {
+                            is VoiceNoteStopResult.Success -> {
+                                viewModel.sendVoiceMessage(
+                                    conversationId = conversationId,
+                                    durationSec = result.note.durationSec,
+                                    mediaData = result.note.dataUri
+                                )
+                            }
+                            is VoiceNoteStopResult.TooLarge -> {
+                                viewModel.showInAppNotification(
+                                    AppStrings.t("voice_note_too_long", appLanguage)
+                                )
+                            }
+                            VoiceNoteStopResult.Failed -> {
+                                viewModel.showInAppNotification(
+                                    AppStrings.t("voice_note_failed", appLanguage)
+                                )
+                            }
                         }
                     },
                     modifier = Modifier
@@ -1154,24 +1250,31 @@ fun ChatDetailScreen(
 
                     IconButton(
                         onClick = {
-                            if (inputMessage.isNotBlank()) {
+                            val draft = inputMessage.trim()
+                            if (draft.isNotEmpty()) {
                                 val activeEdit = editingMessage
                                 if (activeEdit != null) {
-                                    viewModel.editMessage(conversationId, activeEdit.id, inputMessage)
+                                    inputMessage = ""
+                                    showComposerTools = false
                                     editingMessage = null
+                                    viewModel.editMessage(conversationId, activeEdit.id, draft)
                                 } else {
-                                    val reply = replyingToMessage
-                                    viewModel.sendMessage(
-                                        conversationId = conversationId,
-                                        text = inputMessage,
-                                        replyToMessageId = reply?.id,
-                                        replyToText = reply?.text,
-                                        replyToSenderName = reply?.let { if (it.isMine) currentUser.name else conversation?.peerUser?.name }
-                                    )
-                                    replyingToMessage = null
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastSendClickAtMs >= 900L) {
+                                        lastSendClickAtMs = now
+                                        val reply = replyingToMessage
+                                        inputMessage = ""
+                                        showComposerTools = false
+                                        replyingToMessage = null
+                                        viewModel.sendMessage(
+                                            conversationId = conversationId,
+                                            text = draft,
+                                            replyToMessageId = reply?.id,
+                                            replyToText = reply?.text,
+                                            replyToSenderName = reply?.let { if (it.isMine) currentUser.name else conversation?.peerUser?.name }
+                                        )
+                                    }
                                 }
-                                inputMessage = ""
-                                showComposerTools = false
                             }
                         },
                         modifier = Modifier

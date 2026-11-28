@@ -17,15 +17,18 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +54,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -73,7 +77,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -82,6 +85,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +101,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.data.FirestoreComment
 import com.example.data.FirestorePost
@@ -121,21 +126,21 @@ fun FeedScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val posts by viewModel.firestorePosts.collectAsState()
-    val stories by viewModel.stories.collectAsState()
-    val savedPostIds by viewModel.savedPostIds.collectAsState()
-    val followingIds by viewModel.followingIds.collectAsState()
-    val blockedUserIds by viewModel.blockedUserIds.collectAsState()
-    val inlineTranslations by viewModel.inlineTranslations.collectAsState()
-    val inlineTranslatingKeys by viewModel.inlineTranslatingKeys.collectAsState()
-    val inlineTranslationErrors by viewModel.inlineTranslationErrors.collectAsState()
-    val defaultTranslateLanguage by viewModel.defaultTranslateLanguage.collectAsState()
-    val showTranslationNotes by viewModel.showTranslationNotes.collectAsState()
-    val isMediaUploading by viewModel.isMediaUploading.collectAsState()
-    val isPolishingPost by viewModel.isPolishingPost.collectAsState()
-    val appLanguage by viewModel.appLanguage.collectAsState()
-    val currentUser by viewModel.currentUser.collectAsState()
-    val allUsers by viewModel.repository.users.collectAsState()
+    val posts by viewModel.firestorePosts.collectAsStateWithLifecycle()
+    val stories by viewModel.stories.collectAsStateWithLifecycle()
+    val savedPostIds by viewModel.savedPostIds.collectAsStateWithLifecycle()
+    val followingIds by viewModel.followingIds.collectAsStateWithLifecycle()
+    val blockedUserIds by viewModel.blockedUserIds.collectAsStateWithLifecycle()
+    val inlineTranslations by viewModel.inlineTranslations.collectAsStateWithLifecycle()
+    val inlineTranslatingKeys by viewModel.inlineTranslatingKeys.collectAsStateWithLifecycle()
+    val inlineTranslationErrors by viewModel.inlineTranslationErrors.collectAsStateWithLifecycle()
+    val defaultTranslateLanguage by viewModel.defaultTranslateLanguage.collectAsStateWithLifecycle()
+    val showTranslationNotes by viewModel.showTranslationNotes.collectAsStateWithLifecycle()
+    val isMediaUploading by viewModel.isMediaUploading.collectAsStateWithLifecycle()
+    val isPolishingPost by viewModel.isPolishingPost.collectAsStateWithLifecycle()
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val allUsers by viewModel.repository.users.collectAsStateWithLifecycle()
     val currentUid = Firebase.auth.currentUser?.uid ?: currentUser.id
 
     var selectedFeedTab by remember { mutableIntStateOf(0) }
@@ -184,15 +189,14 @@ fun FeedScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showCreatePostDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = RoundedCornerShape(18.dp),
-                modifier = Modifier
-                    .padding(bottom = 64.dp)
-                    .testTag("create_post_fab")
+                modifier = Modifier.testTag("create_post_fab")
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -208,13 +212,20 @@ fun FeedScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .testTag("feed_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp)
+                .imePadding(),
+            contentAlignment = Alignment.TopCenter
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+                    .testTag("feed_screen"),
+                contentPadding = PaddingValues(bottom = 84.dp)
+            ) {
             item {
                 Row(
                     modifier = Modifier
@@ -343,7 +354,11 @@ fun FeedScreen(
                     }
                 }
             } else {
-                items(visiblePosts, key = { it.id }) { post ->
+                items(
+                    items = visiblePosts,
+                    key = { it.id },
+                    contentType = { "feed_post" }
+                ) { post ->
                     val isLiked = post.likedUserIds.contains(currentUid)
                     val isSaved = post.id in savedPostIds
                     val translationKey = "post_${post.id}"
@@ -395,6 +410,7 @@ fun FeedScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
+            }
             }
         }
     }
@@ -574,84 +590,111 @@ private fun CreateStoryDialog(
     val swatches = listOf(0xFF6A1B9AL, 0xFF00695CL, 0xFFC62828L, 0xFF1565C0L, 0xFFEF6C00L)
     var selectedBg by remember { mutableLongStateOf(swatches.first()) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 520.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Text(
-                        text = AppStrings.t("create_story", appLanguage),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
-                        Icon(imageVector = Icons.Filled.Close, contentDescription = AppStrings.t("close", appLanguage))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    swatches.forEach { hex ->
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(hex))
-                                .border(
-                                    width = if (selectedBg == hex) 3.dp else 0.dp,
-                                    color = if (selectedBg == hex) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedBg = hex }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = AppStrings.t("create_story", appLanguage),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
                         )
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                            Icon(imageVector = Icons.Filled.Close, contentDescription = AppStrings.t("close", appLanguage))
+                        }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                OutlinedTextField(
-                    value = storyText,
-                    onValueChange = { if (it.length <= 400) storyText = it },
-                    placeholder = { Text(AppStrings.t("story_placeholder", appLanguage)) },
-                    minLines = 3,
-                    maxLines = 5,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("story_text_input")
-                )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        swatches.forEach { hex ->
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .clickable { selectedBg = hex },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(hex))
+                                        .border(
+                                            width = if (selectedBg == hex) 3.dp else 0.dp,
+                                            color = if (selectedBg == hex) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                            shape = CircleShape
+                                        )
+                                )
+                            }
+                        }
+                    }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("Daily", "Languages", "Culture", "Music", "Travel").forEach { cat ->
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (selectedCategory == cat) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.clickable { selectedCategory = cat }
-                        ) {
-                            Text(
-                                text = cat,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (selectedCategory == cat) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
+                    OutlinedTextField(
+                        value = storyText,
+                        onValueChange = { if (it.length <= 400) storyText = it },
+                        placeholder = { Text(AppStrings.t("story_placeholder", appLanguage)) },
+                        minLines = 3,
+                        maxLines = 5,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("story_text_input")
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("Daily", "Languages", "Culture", "Music", "Travel").forEach { cat ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (selectedCategory == cat) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.clickable { selectedCategory = cat }
+                            ) {
+                                Text(
+                                    text = cat,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedCategory == cat) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -662,14 +705,19 @@ private fun CreateStoryDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    OutlinedButton(onClick = onDismiss) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
                         Text(AppStrings.t("cancel", appLanguage))
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = { onPublish(storyText.trim(), selectedCategory, selectedBg) },
                         enabled = storyText.isNotBlank(),
-                        modifier = Modifier.testTag("publish_story_button")
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("publish_story_button")
                     ) {
                         Text(AppStrings.t("send", appLanguage))
                     }
@@ -694,15 +742,28 @@ private fun StoryViewerDialog(
         onViewed()
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
         Surface(
             shape = RoundedCornerShape(26.dp),
             color = Color(story.backgroundHex),
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 520.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
                 .testTag("story_viewer_dialog")
         ) {
-            Column(modifier = Modifier.padding(22.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1312,17 +1373,29 @@ fun CreatePostDialog(
             externalVideoUrl.isNotBlank()
         )
 
-    Dialog(onDismissRequest = { if (!isUploading) onDismiss() }) {
+    Dialog(
+        onDismissRequest = { if (!isUploading) onDismiss() },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 560.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .padding(22.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
+            Column(modifier = Modifier.padding(22.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1532,11 +1605,11 @@ fun CreatePostDialog(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(6.dp)
-                                .size(36.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.6f))
                         ) {
-                            Icon(Icons.Filled.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Filled.Close, contentDescription = AppStrings.t("close", appLanguage), tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -1562,9 +1635,9 @@ fun CreatePostDialog(
                             )
                             IconButton(
                                 onClick = { selectedVideoUri = null },
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(48.dp)
                             ) {
-                                Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.Close, contentDescription = AppStrings.t("close", appLanguage), modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -1619,8 +1692,9 @@ fun CreatePostDialog(
                         }
                     }
                 }
+                }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1649,7 +1723,9 @@ fun CreatePostDialog(
                         },
                         enabled = canPublish,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.testTag("publish_post_button")
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("publish_post_button")
                     ) {
                         if (isUploading) {
                             CircularProgressIndicator(
@@ -1676,18 +1752,18 @@ fun CommentBottomSheet(
 ) {
     var commentText by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val appLanguage by viewModel.appLanguage.collectAsState()
-    val comments by viewModel.observeCommentsForPost(post.id).collectAsState(initial = emptyList())
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val comments by viewModel.observeCommentsForPost(post.id).collectAsStateWithLifecycle(initialValue = emptyList())
     val timeFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        contentWindowInsets = { BottomSheetDefaults.windowInsets }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 20.dp, vertical = 10.dp)
         ) {

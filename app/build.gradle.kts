@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.viberoom.vbrkzt"
     minSdk = 24
     targetSdk = 36
-    versionCode = 9
-    versionName = "9.0"
+    versionCode = 16
+    versionName = "16.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

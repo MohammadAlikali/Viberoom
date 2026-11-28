@@ -4,11 +4,17 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -69,7 +75,10 @@ fun DataUriOrUrlImage(
         if (showZoomDialog) {
             Dialog(
                 onDismissRequest = { showZoomDialog = false },
-                properties = DialogProperties(usePlatformDefaultWidth = false)
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
             ) {
                 Box(
                     modifier = Modifier
@@ -83,12 +92,14 @@ fun DataUriOrUrlImage(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
                             .padding(16.dp)
                     )
                     IconButton(
                         onClick = { showZoomDialog = false },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
+                            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
                             .padding(16.dp)
                             .size(48.dp)
                             .clip(CircleShape)

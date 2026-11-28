@@ -2115,6 +2115,528 @@ object AppStrings {
             AppLanguage.ENGLISH to "Manage visibility, messaging, presence & safety controls",
             AppLanguage.DARI_PERSIAN to "مدیریت نمایش پروفایل، پیام‌ها، وضعیت آنلاین و امنیت",
             AppLanguage.PASHTO to "د لید، پیغامونو، آنلاین حالت او خوندیتوب کنټرول"
+        ),
+        // Voice Room Path A Rebuild
+        "vr_gifts_title" to mapOf(
+            AppLanguage.ENGLISH to "Gift Studio",
+            AppLanguage.DARI_PERSIAN to "مرکز هدایا",
+            AppLanguage.PASHTO to "د ډالیو سټوډیو"
+        ),
+        "vr_soundboard_title" to mapOf(
+            AppLanguage.ENGLISH to "Live Soundboard",
+            AppLanguage.DARI_PERSIAN to "افکت‌های صوتی زنده",
+            AppLanguage.PASHTO to "ژوندي غږیز افکتونه"
+        ),
+        "vr_room_chat_title" to mapOf(
+            AppLanguage.ENGLISH to "Stage Chat & Polls",
+            AppLanguage.DARI_PERSIAN to "چت اتاق و نظرسنجی",
+            AppLanguage.PASHTO to "د خونې چټ او نظرپوښتنې"
+        ),
+        "vr_moderator_title" to mapOf(
+            AppLanguage.ENGLISH to "Stage & Moderator Deck",
+            AppLanguage.DARI_PERSIAN to "پنل مدیریت و تنظیمات صحنه",
+            AppLanguage.PASHTO to "د سټیج او مدیریت پینل"
+        ),
+        "vr_background_themes" to mapOf(
+            AppLanguage.ENGLISH to "Stage Atmosphere",
+            AppLanguage.DARI_PERSIAN to "پس‌زمینه زنده صحنه",
+            AppLanguage.PASHTO to "د سټیج شالید"
+        ),
+        "vr_entrance_styles" to mapOf(
+            AppLanguage.ENGLISH to "VIP Entrance Animation",
+            AppLanguage.DARI_PERSIAN to "انیمیشن ورود به اتاق",
+            AppLanguage.PASHTO to "د ننوتلو انیمیشن"
+        ),
+        "vr_stage_lock" to mapOf(
+            AppLanguage.ENGLISH to "Lock Stage (Invite Only)",
+            AppLanguage.DARI_PERSIAN to "قفل صحنه (فقط با دعوت)",
+            AppLanguage.PASHTO to "سټیج قلفول (یوازې بلنه)"
+        ),
+        "vr_mute_all" to mapOf(
+            AppLanguage.ENGLISH to "Mute All Speakers",
+            AppLanguage.DARI_PERSIAN to "قطع میکروفون همه",
+            AppLanguage.PASHTO to "ټول مایکونه بندول"
+        ),
+        "vr_kick" to mapOf(
+            AppLanguage.ENGLISH to "Kick from Room",
+            AppLanguage.DARI_PERSIAN to "اخراج موقت",
+            AppLanguage.PASHTO to "له خونې ایستل"
+        ),
+        "vr_ban" to mapOf(
+            AppLanguage.ENGLISH to "Ban from Room",
+            AppLanguage.DARI_PERSIAN to "مسدودیت از اتاق",
+            AppLanguage.PASHTO to "له خونې بندول"
+        ),
+        "vr_make_moderator" to mapOf(
+            AppLanguage.ENGLISH to "Make Moderator",
+            AppLanguage.DARI_PERSIAN to "ارتقا به ناظر",
+            AppLanguage.PASHTO to "مدیر ټاکل"
+        ),
+        "vr_remove_moderator" to mapOf(
+            AppLanguage.ENGLISH to "Remove Moderator",
+            AppLanguage.DARI_PERSIAN to "لغو نظارت",
+            AppLanguage.PASHTO to "مدیریت لرې کول"
+        ),
+        "vr_mod_badge" to mapOf(
+            AppLanguage.ENGLISH to "MOD",
+            AppLanguage.DARI_PERSIAN to "ناظر",
+            AppLanguage.PASHTO to "مدیر"
+        ),
+        "vr_successor_host" to mapOf(
+            AppLanguage.ENGLISH to "Successor Host on Leave",
+            AppLanguage.DARI_PERSIAN to "جانشین میزبان هنگام خروج",
+            AppLanguage.PASHTO to "د وتلو پر مهال ځای ناستی کوربه"
+        ),
+        "vr_low_power_mode" to mapOf(
+            AppLanguage.ENGLISH to "Low-Power Canvas Mode",
+            AppLanguage.DARI_PERSIAN to "حالت کم‌مصرف انیمیشن",
+            AppLanguage.PASHTO to "د بیټرۍ سپما حالت"
+        ),
+        "vr_disable_gift_fx" to mapOf(
+            AppLanguage.ENGLISH to "Show Gift Animations",
+            AppLanguage.DARI_PERSIAN to "نمایش انیمیشن هدایا",
+            AppLanguage.PASHTO to "د ډالیو انیمیشن ښودل"
+        ),
+        "vr_disable_entrance_fx" to mapOf(
+            AppLanguage.ENGLISH to "Show Entrance Animations",
+            AppLanguage.DARI_PERSIAN to "نمایش انیمیشن ورود",
+            AppLanguage.PASHTO to "د ننوتلو انیمیشن ښودل"
+        ),
+        "vr_sound_volume" to mapOf(
+            AppLanguage.ENGLISH to "Soundboard Volume",
+            AppLanguage.DARI_PERSIAN to "صدای افکت‌ها",
+            AppLanguage.PASHTO to "د غږونو اندازه"
+        ),
+        "vr_stop_sounds" to mapOf(
+            AppLanguage.ENGLISH to "Stop Audio",
+            AppLanguage.DARI_PERSIAN to "توقف صدا",
+            AppLanguage.PASHTO to "غږ درول"
+        ),
+        "vr_audio_route" to mapOf(
+            AppLanguage.ENGLISH to "Audio Output",
+            AppLanguage.DARI_PERSIAN to "خروجی صدا",
+            AppLanguage.PASHTO to "د غږ لاره"
+        ),
+        "vr_send_gift" to mapOf(
+            AppLanguage.ENGLISH to "Send Gift",
+            AppLanguage.DARI_PERSIAN to "ارسال هدیه",
+            AppLanguage.PASHTO to "ډالۍ استول"
+        ),
+        "vr_free_badge" to mapOf(
+            AppLanguage.ENGLISH to "FREE",
+            AppLanguage.DARI_PERSIAN to "رایگان",
+            AppLanguage.PASHTO to "وړیا"
+        ),
+        "vr_leaderboard_tab" to mapOf(
+            AppLanguage.ENGLISH to "Supporters",
+            AppLanguage.DARI_PERSIAN to "حامیان برتر",
+            AppLanguage.PASHTO to "غوره ملاتړي"
+        ),
+        "vr_create_poll" to mapOf(
+            AppLanguage.ENGLISH to "Create Live Poll",
+            AppLanguage.DARI_PERSIAN to "ایجاد نظرسنجی زنده",
+            AppLanguage.PASHTO to "ژوندۍ نظرپوښتنه جوړول"
+        ),
+        "vr_pinned_notice" to mapOf(
+            AppLanguage.ENGLISH to "Pinned Stage Notice",
+            AppLanguage.DARI_PERSIAN to "اعلان سنجاق‌شده صحنه",
+            AppLanguage.PASHTO to "پین شوی خبرتیا"
+        ),
+        "vr_chat_placeholder" to mapOf(
+            AppLanguage.ENGLISH to "Say something to the room...",
+            AppLanguage.DARI_PERSIAN to "پیامی به اتاق بنویسید...",
+            AppLanguage.PASHTO to "خونې ته یو پیغام ولیکئ..."
+        ),
+        "vr_banned_notice" to mapOf(
+            AppLanguage.ENGLISH to "You are banned from joining this voice room.",
+            AppLanguage.DARI_PERSIAN to "دسترسی شما به این اتاق صوتی مسدود شده است.",
+            AppLanguage.PASHTO to "تاسو له دې خونې څخه بند شوي یاست."
+        ),
+        "vr_room_ended_notice" to mapOf(
+            AppLanguage.ENGLISH to "This voice room has ended.",
+            AppLanguage.DARI_PERSIAN to "این اتاق صوتی به پایان رسید.",
+            AppLanguage.PASHTO to "دا غږیزه خونه پای ته ورسېده."
+        ),
+        "vr_stage_locked_notice" to mapOf(
+            AppLanguage.ENGLISH to "Stage is locked by the host (invite only).",
+            AppLanguage.DARI_PERSIAN to "صحنه توسط میزبان قفل شده است.",
+            AppLanguage.PASHTO to "سټیج د کوربه لخوا قلف دی."
+        ),
+        "vr_stage_capacity_reached" to mapOf(
+            AppLanguage.ENGLISH to "Stage reached maximum 6 P2P audio slots.",
+            AppLanguage.DARI_PERSIAN to "ظرفیت ۶ نفر همزمان صوتی تکمیل است.",
+            AppLanguage.PASHTO to "د ۶ غږیزو ګډونوالو حد پوره شو."
+        ),
+        "vr_all_muted_notice" to mapOf(
+            AppLanguage.ENGLISH to "All speakers have been muted.",
+            AppLanguage.DARI_PERSIAN to "میکروفون همه سخنرانان قطع شد.",
+            AppLanguage.PASHTO to "د ټولو ویناوالو مایکونه بند شول."
+        ),
+        "vr_insufficient_xp" to mapOf(
+            AppLanguage.ENGLISH to "Not enough earned Vibe XP for that gift yet.",
+            AppLanguage.DARI_PERSIAN to "امتیاز وایب کافی برای این هدیه ندارید؛ از هدایای رایگان استفاده کنید.",
+            AppLanguage.PASHTO to "کافي Vibe XP نشته؛ وړیا ډالۍ وکاروئ."
+        ),
+        "vr_sound_cooldown" to mapOf(
+            AppLanguage.ENGLISH to "Wait a second before triggering another sound.",
+            AppLanguage.DARI_PERSIAN to "کمی صبر کنید و دوباره پخش کنید.",
+            AppLanguage.PASHTO to "لږ صبر وکړئ بیا یې ولګوئ."
+        ),
+        "vr_retry_audio" to mapOf(
+            AppLanguage.ENGLISH to "Retry Audio",
+            AppLanguage.DARI_PERSIAN to "تلاش مجدد صوت",
+            AppLanguage.PASHTO to "بیا نښلول"
+        ),
+        "vr_nat_warning" to mapOf(
+            AppLanguage.ENGLISH to "Using free public STUN. Strict mobile/NAT firewalls may block P2P audio.",
+            AppLanguage.DARI_PERSIAN to "اتصال P2P با STUN رایگان است؛ در برخی شبکه‌های محدود ممکن است نیاز به تغییر شبکه یا ریترای باشد.",
+            AppLanguage.PASHTO to "وړیا STUN کارول کېږي؛ ځینې شبکې ممکن P2P غږ بند کړي."
+        ),
+        "vr_mic_permission_banner_title" to mapOf(
+            AppLanguage.ENGLISH to "Microphone permission required to speak",
+            AppLanguage.DARI_PERSIAN to "برای صحبت در اتاق دسترسی میکروفون لازم است",
+            AppLanguage.PASHTO to "د خبرو کولو لپاره د مایکروفون اجازه اړینه ده"
+        ),
+        "vr_mic_permission_banner_desc" to mapOf(
+            AppLanguage.ENGLISH to "Allow microphone access so other participants can hear your voice.",
+            AppLanguage.DARI_PERSIAN to "دسترسی میکروفون را بدهید تا سایر اعضای اتاق صدای شما را بشنوند.",
+            AppLanguage.PASHTO to "مایکروفون ته اجازه ورکړئ ترڅو نور ګډونوال ستاسو غږ واوري."
+        ),
+        "vr_grant_mic_btn" to mapOf(
+            AppLanguage.ENGLISH to "Allow Mic",
+            AppLanguage.DARI_PERSIAN to "اجازه میکروفون",
+            AppLanguage.PASHTO to "مایک اجازه"
+        ),
+        "vr_open_settings_btn" to mapOf(
+            AppLanguage.ENGLISH to "App Settings",
+            AppLanguage.DARI_PERSIAN to "تنظیمات برنامه",
+            AppLanguage.PASHTO to "تنظیمات"
+        ),
+        "vr_mic_live" to mapOf(
+            AppLanguage.ENGLISH to "Mic Live",
+            AppLanguage.DARI_PERSIAN to "میکروفون روشن",
+            AppLanguage.PASHTO to "مایک فعال"
+        ),
+        "vr_mic_needed_badge" to mapOf(
+            AppLanguage.ENGLISH to "Mic Denied",
+            AppLanguage.DARI_PERSIAN to "نیاز به اجازه میکروفون",
+            AppLanguage.PASHTO to "مایک بند دی"
+        ),
+        "vr_audio_failed" to mapOf(
+            AppLanguage.ENGLISH to "Audio Failed",
+            AppLanguage.DARI_PERSIAN to "خطای اتصال صوت",
+            AppLanguage.PASHTO to "غږ ونښت"
+        ),
+        "vr_audio_ready" to mapOf(
+            AppLanguage.ENGLISH to "Audio Ready",
+            AppLanguage.DARI_PERSIAN to "آماده صوت",
+            AppLanguage.PASHTO to "غږ چمتو دی"
+        ),
+        "vr_join_mic_seat" to mapOf(
+            AppLanguage.ENGLISH to "Join Mic",
+            AppLanguage.DARI_PERSIAN to "گرفتن مایک",
+            AppLanguage.PASHTO to "مایک اخیستل"
+        ),
+        "vr_seat_label" to mapOf(
+            AppLanguage.ENGLISH to "Mic Seat",
+            AppLanguage.DARI_PERSIAN to "جایگاه مایک",
+            AppLanguage.PASHTO to "د مایک چوکۍ"
+        ),
+        "vr_step_down" to mapOf(
+            AppLanguage.ENGLISH to "Audience",
+            AppLanguage.DARI_PERSIAN to "رفتن به شنوندگان",
+            AppLanguage.PASHTO to "اورېدونکو ته"
+        ),
+        "vr_host_muted_badge" to mapOf(
+            AppLanguage.ENGLISH to "Host Muted",
+            AppLanguage.DARI_PERSIAN to "قطع توسط میزبان",
+            AppLanguage.PASHTO to "کوربه بند کړی"
+        ),
+        "vr_host_muted_banner" to mapOf(
+            AppLanguage.ENGLISH to "The host restricted your microphone. Only a moderator can re-enable mic permission.",
+            AppLanguage.DARI_PERSIAN to "میزبان دسترسی میکروفون شما را محدود کرده است. تا زمان رفع محدودیت امکان باز کردن مایک ندارید.",
+            AppLanguage.PASHTO to "کوربه ستاسو مایکروفون محدود کړی دی. تر هغې چې اجازه درکړل شي مایک نشئ خلاصولی."
+        ),
+        "vr_allow_mic" to mapOf(
+            AppLanguage.ENGLISH to "Allow Mic Access",
+            AppLanguage.DARI_PERSIAN to "اجازه دادن به مایک",
+            AppLanguage.PASHTO to "مایک اجازه ورکول"
+        ),
+        "vr_mic_allowed_notice" to mapOf(
+            AppLanguage.ENGLISH to "Host allowed your mic. Tap Unmute when you want to speak.",
+            AppLanguage.DARI_PERSIAN to "میزبان اجازه مایک را داد؛ هر وقت آماده بودید مایک را روشن کنید.",
+            AppLanguage.PASHTO to "کوربه د مایک اجازه درکړه؛ کله چې چمتو یاست مایک چالان کړئ."
+        ),
+        "vr_cannot_force_unmute" to mapOf(
+            AppLanguage.ENGLISH to "Hosts cannot force-unmute another participant's mic; you can grant permission so they can unmute themselves.",
+            AppLanguage.DARI_PERSIAN to "میزبان نمی‌تواند مایک شخص دیگری را به اجبار روشن کند؛ فقط می‌تواند محدودیت را بردارد.",
+            AppLanguage.PASHTO to "کوربه نشي کولی د بل چا مایک په زوره چالان کړي؛ یوازې اجازه ورکولی شي."
+        ),
+        "vr_studio_tools" to mapOf(
+            AppLanguage.ENGLISH to "Tools",
+            AppLanguage.DARI_PERSIAN to "ابزارها",
+            AppLanguage.PASHTO to "وسایل"
+        ),
+        "vr_audience_empty" to mapOf(
+            AppLanguage.ENGLISH to "No listeners in audience yet",
+            AppLanguage.DARI_PERSIAN to "هنوز شنونده‌ای در سالن نیست",
+            AppLanguage.PASHTO to "لا تر اوسه اورېدونکی نشته"
+        ),
+        "vr_room_ended_title" to mapOf(
+            AppLanguage.ENGLISH to "Room Ended",
+            AppLanguage.DARI_PERSIAN to "پایان اتاق صوتی",
+            AppLanguage.PASHTO to "غږیزه خونه پای ته ورسېده"
+        ),
+        "vr_room_ended_polite_body" to mapOf(
+            AppLanguage.ENGLISH to "The host has ended this voice room. Thank you for joining! You will now return to Voice Rooms.",
+            AppLanguage.DARI_PERSIAN to "میزبان این اتاق صوتی را به پایان رساند. سپاس از حضور شما! اکنون به فهرست اتاق‌ها بازمی‌گردید.",
+            AppLanguage.PASHTO to "کوربه دا غږیزه خونه پای ته ورسوله. ستاسو د ګډون مننه! اوس بېرته د خونو لېست ته ستنېږئ."
+        ),
+        "vr_ban_15m" to mapOf(
+            AppLanguage.ENGLISH to "Ban 15m",
+            AppLanguage.DARI_PERSIAN to "مسدود ۱۵ د",
+            AppLanguage.PASHTO to "بند ۱۵ د"
+        ),
+        "vr_ban_1h" to mapOf(
+            AppLanguage.ENGLISH to "Ban 1h",
+            AppLanguage.DARI_PERSIAN to "مسدود ۱ س",
+            AppLanguage.PASHTO to "بند ۱ س"
+        ),
+        "vr_ban_perm" to mapOf(
+            AppLanguage.ENGLISH to "Perm Ban",
+            AppLanguage.DARI_PERSIAN to "مسدود دایم",
+            AppLanguage.PASHTO to "دایمي بند"
+        ),
+        "vr_temp_banned_notice" to mapOf(
+            AppLanguage.ENGLISH to "You are temporarily banned from this voice room.",
+            AppLanguage.DARI_PERSIAN to "شما به صورت موقت از این اتاق صوتی مسدود شده‌اید.",
+            AppLanguage.PASHTO to "تاسو د لنډ وخت لپاره له دې خونې بند شوي یاست."
+        ),
+        "vr_duplicate_room_blocked" to mapOf(
+            AppLanguage.ENGLISH to "Creating room, please wait...",
+            AppLanguage.DARI_PERSIAN to "در حال ساخت اتاق، لطفاً صبر کنید...",
+            AppLanguage.PASHTO to "خونه جوړېږي، لږ صبر وکړئ..."
+        ),
+        "vr_join_stage_failed" to mapOf(
+            AppLanguage.ENGLISH to "Could not join mic seat right now.",
+            AppLanguage.DARI_PERSIAN to "امکان گرفتن جایگاه مایک وجود نداشت.",
+            AppLanguage.PASHTO to "د مایک چوکۍ ونشو نیول."
+        ),
+        "vr_ok_return" to mapOf(
+            AppLanguage.ENGLISH to "OK",
+            AppLanguage.DARI_PERSIAN to "باشه",
+            AppLanguage.PASHTO to "سمه ده"
+        ),
+        "voice_note_too_long" to mapOf(
+            AppLanguage.ENGLISH to "Voice note exceeded the 30-second size limit. Please record a shorter clip.",
+            AppLanguage.DARI_PERSIAN to "پیام صوتی بیش از حد مجاز (۳۰ ثانیه) بود. لطفاً کوتاه‌تر ضبط کنید.",
+            AppLanguage.PASHTO to "غږیز پیغام له ۳۰ ثانیو څخه اوږد شو. مهرباني وکړئ لنډ یې ثبت کړئ."
+        ),
+        "voice_note_failed" to mapOf(
+            AppLanguage.ENGLISH to "Could not save voice note. Hold or tap again to record.",
+            AppLanguage.DARI_PERSIAN to "ذخیره پیام صوتی انجام نشد. لطفاً دوباره ضبط کنید.",
+            AppLanguage.PASHTO to "غږیز پیغام ثبت نه شو. مهرباني وکړئ بیا هڅه وکړئ."
+        ),
+        "live_captions_mic_conflict" to mapOf(
+            AppLanguage.ENGLISH to "Live captions paused while your WebRTC microphone is live to avoid audio conflict.",
+            AppLanguage.DARI_PERSIAN to "زیرنویس زنده هنگام روشن بودن میکروفون اتاق متوقف شد تا تداخل صوتی رخ ندهد.",
+            AppLanguage.PASHTO to "کله چې ستاسو مایکروفون په خونه کې چالان وي، ژوندۍ ژباړه د غږ د ټکر مخنیوي لپاره ودرېده."
+        ),
+        "live_captions_unavailable" to mapOf(
+            AppLanguage.ENGLISH to "Live captions unavailable right now. Check offline speech recognition or network.",
+            AppLanguage.DARI_PERSIAN to "زیرنویس زنده اکنون در دسترس نیست. اتصال یا تشخیص گفتار دستگاه را بررسی کنید.",
+            AppLanguage.PASHTO to "ژوندۍ لیکنه اوس مهال شتون نلري. د وسیلې غږ پېژندنه یا انټرنېټ وګورئ."
+        ),
+        "select_chat_hint_title" to mapOf(
+            AppLanguage.ENGLISH to "Select a Conversation",
+            AppLanguage.DARI_PERSIAN to "یک گفتگو را انتخاب کنید",
+            AppLanguage.PASHTO to "یو مجلس وټاکئ"
+        ),
+        "select_chat_hint_desc" to mapOf(
+            AppLanguage.ENGLISH to "Choose any friend or language partner on the left to open your chat here.",
+            AppLanguage.DARI_PERSIAN to "برای شروع گفتگو، یکی از مخاطبین سمت راست را انتخاب کنید.",
+            AppLanguage.PASHTO to "د خبرو پیل کولو لپاره له لیست څخه یو ملګری غوره کړئ."
+        ),
+        "max_peers_badge" to mapOf(
+            AppLanguage.ENGLISH to "Max 6 Speakers",
+            AppLanguage.DARI_PERSIAN to "حداکثر ۶ سخنران",
+            AppLanguage.PASHTO to "تر ۶ ویناوالو"
+        ),
+        // Yeetalk-style Profile & Centralized Settings
+        "settings_title" to mapOf(
+            AppLanguage.ENGLISH to "Settings",
+            AppLanguage.DARI_PERSIAN to "تنظیمات",
+            AppLanguage.PASHTO to "ترتیبات"
+        ),
+        "settings_section_account" to mapOf(
+            AppLanguage.ENGLISH to "Account Settings",
+            AppLanguage.DARI_PERSIAN to "تنظیمات حساب کاربری",
+            AppLanguage.PASHTO to "د حساب ترتیبات"
+        ),
+        "settings_section_privacy" to mapOf(
+            AppLanguage.ENGLISH to "Privacy & Security",
+            AppLanguage.DARI_PERSIAN to "حریم خصوصی و امنیت",
+            AppLanguage.PASHTO to "محرمیت او امنیت"
+        ),
+        "settings_section_notifications" to mapOf(
+            AppLanguage.ENGLISH to "Notifications",
+            AppLanguage.DARI_PERSIAN to "اعلان‌ها",
+            AppLanguage.PASHTO to "خبرتیاوې"
+        ),
+        "settings_section_language" to mapOf(
+            AppLanguage.ENGLISH to "Language & Translation",
+            AppLanguage.DARI_PERSIAN to "زبان و ترجمه",
+            AppLanguage.PASHTO to "ژبه او ژباړه"
+        ),
+        "settings_section_appearance" to mapOf(
+            AppLanguage.ENGLISH to "Appearance & Theme",
+            AppLanguage.DARI_PERSIAN to "ظاهر و تم برنامه",
+            AppLanguage.PASHTO to "بڼه او تم"
+        ),
+        "settings_section_audio" to mapOf(
+            AppLanguage.ENGLISH to "Audio & Microphone",
+            AppLanguage.DARI_PERSIAN to "صدا و میکروفون",
+            AppLanguage.PASHTO to "غږ او مایکروفون"
+        ),
+        "settings_section_permissions" to mapOf(
+            AppLanguage.ENGLISH to "Permissions",
+            AppLanguage.DARI_PERSIAN to "دسترسی‌ها و مجوزها",
+            AppLanguage.PASHTO to "اجازې"
+        ),
+        "settings_section_about" to mapOf(
+            AppLanguage.ENGLISH to "About VibeRoom",
+            AppLanguage.DARI_PERSIAN to "درباره وایب‌روم",
+            AppLanguage.PASHTO to "د وایبروم په اړه"
+        ),
+        "settings_user_id_label" to mapOf(
+            AppLanguage.ENGLISH to "User ID",
+            AppLanguage.DARI_PERSIAN to "شناسه کاربری",
+            AppLanguage.PASHTO to "د کارن پېژند"
+        ),
+        "settings_copy_id" to mapOf(
+            AppLanguage.ENGLISH to "Copy ID",
+            AppLanguage.DARI_PERSIAN to "کپی شناسه",
+            AppLanguage.PASHTO to "پېژند کاپي کول"
+        ),
+        "settings_open_notifications" to mapOf(
+            AppLanguage.ENGLISH to "Notification Inbox",
+            AppLanguage.DARI_PERSIAN to "صندوق اعلان‌ها",
+            AppLanguage.PASHTO to "د خبرتیاوو صندوق"
+        ),
+        "settings_mic_permission" to mapOf(
+            AppLanguage.ENGLISH to "Microphone Permission",
+            AppLanguage.DARI_PERSIAN to "دسترسی میکروفون",
+            AppLanguage.PASHTO to "د مایکروفون اجازه"
+        ),
+        "settings_permission_granted" to mapOf(
+            AppLanguage.ENGLISH to "Granted",
+            AppLanguage.DARI_PERSIAN to "مجاز",
+            AppLanguage.PASHTO to "اجازه شته"
+        ),
+        "settings_permission_needed" to mapOf(
+            AppLanguage.ENGLISH to "Tap to Allow",
+            AppLanguage.DARI_PERSIAN to "برای اجازه ضربه بزنید",
+            AppLanguage.PASHTO to "د اجازې لپاره کېکاږئ"
+        ),
+        "settings_system_settings" to mapOf(
+            AppLanguage.ENGLISH to "Open Android App Settings",
+            AppLanguage.DARI_PERSIAN to "باز کردن تنظیمات سیستم برنامه",
+            AppLanguage.PASHTO to "د سیسټم ترتیبات پرانیستل"
+        ),
+        "settings_app_version" to mapOf(
+            AppLanguage.ENGLISH to "Version",
+            AppLanguage.DARI_PERSIAN to "نسخه برنامه",
+            AppLanguage.PASHTO to "نسخه"
+        ),
+        "settings_visual_fx_title" to mapOf(
+            AppLanguage.ENGLISH to "Visual & Stage Effects",
+            AppLanguage.DARI_PERSIAN to "انیمیشن و جلوه‌های صحنه",
+            AppLanguage.PASHTO to "بصري او سټېج اغېزې"
+        ),
+        "settings_low_power_desc" to mapOf(
+            AppLanguage.ENGLISH to "Reduce animated stage graphics to save battery",
+            AppLanguage.DARI_PERSIAN to "کاهش انیمیشن‌های پس‌زمینه برای مصرف کمتر باتری",
+            AppLanguage.PASHTO to "د بیټرۍ د سپما لپاره د شالید انیمیشن کمول"
+        ),
+        "share_profile" to mapOf(
+            AppLanguage.ENGLISH to "Share Profile",
+            AppLanguage.DARI_PERSIAN to "اشتراک‌گذاری پروفایل",
+            AppLanguage.PASHTO to "پېژندڅېره شریکول"
+        ),
+        "profile_posts_title" to mapOf(
+            AppLanguage.ENGLISH to "Moments",
+            AppLanguage.DARI_PERSIAN to "پست‌ها و لحظه‌ها",
+            AppLanguage.PASHTO to "پوسټونه او شېبې"
+        ),
+        "profile_posts_empty" to mapOf(
+            AppLanguage.ENGLISH to "No moments shared yet. Your published posts will appear here.",
+            AppLanguage.DARI_PERSIAN to "هنوز پستی منتشر نکرده‌اید. پست‌های شما اینجا نمایش داده می‌شوند.",
+            AppLanguage.PASHTO to "لا تر اوسه کوم پوسټ نشته. ستاسو خپاره شوي پوسټونه به دلته ښکاري."
+        ),
+        "profile_bio_empty" to mapOf(
+            AppLanguage.ENGLISH to "No bio yet — tap Edit Profile to introduce yourself.",
+            AppLanguage.DARI_PERSIAN to "هنوز معرفی کوتاهی ثبت نشده است — برای افزودن، ویرایش پروفایل را بزنید.",
+            AppLanguage.PASHTO to "لا تر اوسه لنډه پېژندنه نشته — د لیکلو لپاره سمول کېکاږئ."
+        ),
+        "posts_count_label" to mapOf(
+            AppLanguage.ENGLISH to "Moments",
+            AppLanguage.DARI_PERSIAN to "پست‌ها",
+            AppLanguage.PASHTO to "پوسټونه"
+        ),
+        "profile_info_section" to mapOf(
+            AppLanguage.ENGLISH to "About Me",
+            AppLanguage.DARI_PERSIAN to "اطلاعات فردی",
+            AppLanguage.PASHTO to "زما په اړه"
+        ),
+        "coach_thinking" to mapOf(
+            AppLanguage.ENGLISH to "Thinking...",
+            AppLanguage.DARI_PERSIAN to "در حال پاسخ‌گویی...",
+            AppLanguage.PASHTO to "ځواب چمتو کوي..."
+        ),
+        "coach_stop" to mapOf(
+            AppLanguage.ENGLISH to "Stop",
+            AppLanguage.DARI_PERSIAN to "توقف",
+            AppLanguage.PASHTO to "ودرول"
+        ),
+        "coach_clear" to mapOf(
+            AppLanguage.ENGLISH to "New Chat",
+            AppLanguage.DARI_PERSIAN to "گفتگوی جدید",
+            AppLanguage.PASHTO to "نوی بحث"
+        ),
+        "coach_mode_conversation" to mapOf(
+            AppLanguage.ENGLISH to "Chat",
+            AppLanguage.DARI_PERSIAN to "گفتگو",
+            AppLanguage.PASHTO to "خبرې"
+        ),
+        "coach_mode_grammar" to mapOf(
+            AppLanguage.ENGLISH to "Grammar",
+            AppLanguage.DARI_PERSIAN to "گرامر",
+            AppLanguage.PASHTO to "ګرامر"
+        ),
+        "coach_mode_pronunciation" to mapOf(
+            AppLanguage.ENGLISH to "Speaking",
+            AppLanguage.DARI_PERSIAN to "تلفظ",
+            AppLanguage.PASHTO to "تلفظ"
+        ),
+        "coach_mode_culture" to mapOf(
+            AppLanguage.ENGLISH to "Culture",
+            AppLanguage.DARI_PERSIAN to "فرهنگ",
+            AppLanguage.PASHTO to "کلتور"
+        ),
+        "create_room_subtitle" to mapOf(
+            AppLanguage.ENGLISH to "Up to 6 live speakers on stage",
+            AppLanguage.DARI_PERSIAN to "تا ۶ سخنران هم‌زمان روی صحنه",
+            AppLanguage.PASHTO to "په سټېج تر ۶ ویناوالو پورې"
+        ),
+        "create_room_settings_section" to mapOf(
+            AppLanguage.ENGLISH to "Room Settings",
+            AppLanguage.DARI_PERSIAN to "تنظیمات اتاق",
+            AppLanguage.PASHTO to "د خونې ترتیبات"
+        ),
+        "vr_listeners_label" to mapOf(
+            AppLanguage.ENGLISH to "Listeners",
+            AppLanguage.DARI_PERSIAN to "شنوندگان",
+            AppLanguage.PASHTO to "اورېدونکي"
         )
     )
 }

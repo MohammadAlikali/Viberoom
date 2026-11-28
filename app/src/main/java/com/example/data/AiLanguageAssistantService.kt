@@ -1,22 +1,31 @@
 package com.example.data
 
 import android.util.Log
+import com.example.model.AiCoachTurn
 import com.example.model.LanguageExercise
 import com.example.model.TranslationResult
 import com.google.firebase.Firebase
+import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.Schema
+import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 private const val AI_TAG = "AiLanguageService"
 private const val AI_REQUEST_TIMEOUT_MS = 35_000L
+private const val MAX_COACH_HISTORY_TURNS = 6
+private const val MAX_HISTORY_TURN_CHARS = 450
 
 /**
  * Clean abstraction for translation providers so UI layers never couple directly to a vendor SDK
@@ -26,17 +35,31 @@ interface TranslationProvider {
     suspend fun translate(text: String, targetLanguage: String, sourceLanguageHint: String = "Auto-detect"): Result<TranslationResult>
 }
 
-class AiLanguageAssistantService : TranslationProvider {
+class AiLanguageAssistantService(
+    private val coachStreamOverride: ((
+        userPrompt: String,
+        targetLanguage: String,
+        proficiencyLevel: String,
+        mode: String,
+        learnerUiLanguage: String,
+        history: List<AiCoachTurn>
+    ) -> Flow<String>)? = null
+) : TranslationProvider {
 
     private val translationCache = ConcurrentHashMap<String, TranslationResult>()
+    private val coachModelCache = ConcurrentHashMap<String, GenerativeModel>()
+
+    private val coachGenerationConfig by lazy {
+        generationConfig {
+            temperature = 0.55f
+            maxOutputTokens = 480
+        }
+    }
 
     private val coachModel by lazy {
         Firebase.ai.generativeModel(
             modelName = "gemini-3.5-flash-lite",
-            generationConfig = generationConfig {
-                temperature = 0.6f
-                maxOutputTokens = 700
-            }
+            generationConfig = coachGenerationConfig
         )
     }
 
@@ -57,7 +80,7 @@ class AiLanguageAssistantService : TranslationProvider {
                 responseMimeType = "application/json"
                 responseSchema = translationSchema
                 temperature = 0.2f
-                maxOutputTokens = 500
+                maxOutputTokens = 420
             }
         )
     }
@@ -80,9 +103,19 @@ class AiLanguageAssistantService : TranslationProvider {
                 responseMimeType = "application/json"
                 responseSchema = exerciseSchema
                 temperature = 0.5f
-                maxOutputTokens = 500
+                maxOutputTokens = 450
             }
         )
+    }
+
+    fun warmup() {
+        if (coachStreamOverride != null) return
+        try {
+            coachModel
+            translatorModel
+        } catch (_: Throwable) {
+            // Safe no-op when FirebaseApp is unavailable in isolated unit tests.
+        }
     }
 
     private fun parseJsonSafely(rawText: String): JSONObject {
@@ -118,62 +151,126 @@ class AiLanguageAssistantService : TranslationProvider {
             clean == "اتومات پیژندنه"
     }
 
+    private fun buildCacheKey(text: String, targetLanguage: String, sourceLanguageHint: String): String {
+        val cleanText = text.trim()
+        val cleanTarget = targetLanguage.trim().ifBlank { "English" }
+        val normalizedHint = if (isAutoDetectHint(sourceLanguageHint)) "Auto-detect" else sourceLanguageHint.trim()
+        return "${normalizedHint.lowercase()}|${cleanTarget.lowercase()}|$cleanText"
+    }
+
+    fun getCachedTranslation(
+        text: String,
+        targetLanguage: String,
+        sourceLanguageHint: String = "Auto-detect"
+    ): TranslationResult? {
+        val cleanText = text.trim()
+        if (cleanText.isBlank()) return null
+        return translationCache[buildCacheKey(cleanText, targetLanguage, sourceLanguageHint)]
+    }
+
+    private fun getOrCreateCoachModel(
+        targetLanguage: String,
+        proficiencyLevel: String,
+        mode: String,
+        learnerUiLanguage: String
+    ): GenerativeModel {
+        val levelText = proficiencyLevel.ifBlank { "Intermediate" }
+        val cleanTarget = targetLanguage.trim().ifBlank { "English" }
+        val cleanUi = learnerUiLanguage.trim().ifBlank { "English" }
+        val key = "$mode|${cleanTarget.lowercase()}|${levelText.lowercase()}|${cleanUi.lowercase()}"
+        return coachModelCache.getOrPut(key) {
+            if (coachModelCache.size >= 12) {
+                coachModelCache.clear()
+            }
+            val systemText = when (mode) {
+                "grammar" -> "Concise bilingual $cleanTarget grammar coach ($levelText learner, UI $cleanUi). Show the corrected sentence, 2 short reason bullets, and 2 natural alternatives."
+                "pronunciation" -> "Concise $cleanTarget speaking coach ($levelText). Give syllable breakdown, simple phonetics, stress tip, and 1 short practice phrase."
+                "culture" -> "Concise $cleanTarget cultural guide. Explain etiquette, idioms, and conversational nuance clearly in 3-5 sentences."
+                else -> "Warm, concise $cleanTarget tutor for a $levelText learner (UI $cleanUi). Answer naturally in 2-4 sentences, gently correct slips, and ask 1 short follow-up question."
+            }
+            Firebase.ai.generativeModel(
+                modelName = "gemini-3.5-flash-lite",
+                generationConfig = coachGenerationConfig,
+                systemInstruction = content { text(systemText) }
+            )
+        }
+    }
+
+    internal fun buildBoundedChatHistory(history: List<AiCoachTurn>): List<Content> {
+        return history
+            .asSequence()
+            .filter { !it.isStreaming && it.text.isNotBlank() }
+            .toList()
+            .takeLast(MAX_COACH_HISTORY_TURNS)
+            .map { turn ->
+                val clipped = turn.text.trim().let { raw ->
+                    if (raw.length > MAX_HISTORY_TURN_CHARS) raw.take(MAX_HISTORY_TURN_CHARS) + "…" else raw
+                }
+                content(role = if (turn.isUser) "user" else "model") {
+                    text(clipped)
+                }
+            }
+    }
+
     fun streamCoachResponse(
         userPrompt: String,
         targetLanguage: String,
         proficiencyLevel: String,
         mode: String,
-        learnerUiLanguage: String = "English"
-    ): Flow<String> = flow {
-        val levelText = proficiencyLevel.ifBlank { "Intermediate" }
-        val systemInstruction = when (mode) {
-            "grammar" -> "You are an encouraging bilingual language coach. Correct grammar mistakes gently, show the corrected sentence, explain why in brief bullet points (in $learnerUiLanguage or matching the user's message language), and give 2 natural alternatives in $targetLanguage."
-            "pronunciation" -> "You are a pronunciation and speaking coach for $targetLanguage. Provide syllable breakdown, IPA/simple phonetic guide, stress tips, and a short practice tongue-twister or dialogue."
-            "culture" -> "You are an international cultural exchange guide. Explain cultural etiquette, idioms, and conversational nuances related to $targetLanguage clearly."
-            else -> "You are a warm, practical language exchange tutor helping a $levelText learner practice $targetLanguage. Respond naturally, correct small slips kindly, and ask a follow-up question."
+        learnerUiLanguage: String = "English",
+        history: List<AiCoachTurn> = emptyList()
+    ): Flow<String> {
+        val override = coachStreamOverride
+        if (override != null) {
+            return override(userPrompt, targetLanguage, proficiencyLevel, mode, learnerUiLanguage, history)
         }
-        val prompt = "$systemInstruction\n\nLearner request:\n$userPrompt"
-        val accumulated = StringBuilder()
-        withTimeout(AI_REQUEST_TIMEOUT_MS) {
-            coachModel.generateContentStream(prompt).collect { chunk ->
-                val part = chunk.text.orEmpty()
-                if (part.isNotEmpty()) {
-                    accumulated.append(part)
-                    emit(accumulated.toString())
+        return flow {
+            val model = getOrCreateCoachModel(targetLanguage, proficiencyLevel, mode, learnerUiLanguage)
+            val chatHistory = buildBoundedChatHistory(history)
+            val accumulated = StringBuilder()
+            val responseStream = if (chatHistory.isEmpty()) {
+                model.generateContentStream(userPrompt)
+            } else {
+                model.startChat(history = chatHistory).sendMessageStream(userPrompt)
+            }
+            withTimeout(AI_REQUEST_TIMEOUT_MS) {
+                responseStream.collect { chunk ->
+                    val part = chunk.text.orEmpty()
+                    if (part.isNotEmpty()) {
+                        accumulated.append(part)
+                        emit(accumulated.toString())
+                    }
                 }
             }
-        }
-        if (accumulated.isBlank()) {
-            throw IllegalStateException("AI Coach returned an empty response.")
-        }
+            if (accumulated.isBlank()) {
+                throw IllegalStateException("AI Coach returned an empty response.")
+            }
+        }.flowOn(Dispatchers.IO)
     }
 
     override suspend fun translate(
         text: String,
         targetLanguage: String,
         sourceLanguageHint: String
-    ): Result<TranslationResult> {
+    ): Result<TranslationResult> = withContext(Dispatchers.IO) {
         val cleanText = text.trim()
         val cleanTarget = targetLanguage.trim().ifBlank { "English" }
-        if (cleanText.isBlank()) return Result.failure(IllegalArgumentException("Text cannot be empty."))
+        if (cleanText.isBlank()) return@withContext Result.failure(IllegalArgumentException("Text cannot be empty."))
 
         val normalizedHint = if (isAutoDetectHint(sourceLanguageHint)) "Auto-detect" else sourceLanguageHint.trim()
-        val cacheKey = "${normalizedHint.lowercase()}|${cleanTarget.lowercase()}|$cleanText"
+        val cacheKey = buildCacheKey(cleanText, cleanTarget, normalizedHint)
         translationCache[cacheKey]?.let { cached ->
-            return Result.success(cached)
+            return@withContext Result.success(cached)
         }
 
-        return try {
+        try {
             val prompt = buildString {
-                append("Translate the following text accurately into $cleanTarget.\n")
+                append("Translate into $cleanTarget")
                 if (normalizedHint != "Auto-detect") {
-                    append("Source language hint: $normalizedHint.\n")
-                } else {
-                    append("Automatically detect the source language.\n")
+                    append(" (from $normalizedHint)")
                 }
-                append("Preserve emojis, tone, and meaning. Return ONLY JSON matching the schema with: ")
-                append("detectedSourceLanguage (in English), translatedText (never empty), concise pronunciationNote (romanization/phonetics), and one natural usefulPhrase.\n\n")
-                append("Text:\n$cleanText")
+                append(". Preserve tone and emojis. Return JSON: detectedSourceLanguage (English), translatedText, concise pronunciationNote, usefulPhrase.\n\n")
+                append(cleanText)
             }
 
             val response = withTimeout(AI_REQUEST_TIMEOUT_MS) {
@@ -215,12 +312,9 @@ class AiLanguageAssistantService : TranslationProvider {
         proficiencyLevel: String,
         topic: String = "Daily Conversation",
         learnerUiLanguage: String = "English"
-    ): Result<LanguageExercise> {
-        return try {
-            val prompt = buildString {
-                append("Create 1 engaging multiple-choice $targetLanguage exercise for a ${proficiencyLevel.ifBlank { "Intermediate" }} learner ")
-                append("focused on '$topic'. Provide 4 clear options, correctIndex (0-3), explanation (clear for $learnerUiLanguage speakers), and a brief culturalTip.")
-            }
+    ): Result<LanguageExercise> = withContext(Dispatchers.IO) {
+        try {
+            val prompt = "1 multiple-choice $targetLanguage quiz (${proficiencyLevel.ifBlank { "Intermediate" }}) on '$topic': 4 options, correctIndex (0-3), concise explanation for $learnerUiLanguage speakers, brief culturalTip."
             val response = withTimeout(AI_REQUEST_TIMEOUT_MS) {
                 exerciseModel.generateContent(prompt)
             }
@@ -272,7 +366,7 @@ class AiLanguageAssistantService : TranslationProvider {
                 responseMimeType = "application/json"
                 responseSchema = suggestionsSchema
                 temperature = 0.7f
-                maxOutputTokens = 300
+                maxOutputTokens = 260
             }
         )
     }
@@ -281,14 +375,12 @@ class AiLanguageAssistantService : TranslationProvider {
         recentMessages: List<String>,
         targetLanguage: String,
         learnerUiLanguage: String
-    ): Result<List<String>> {
-        return try {
+    ): Result<List<String>> = withContext(Dispatchers.IO) {
+        try {
             val contextBlock = recentMessages.takeLast(5).joinToString("\n")
             val prompt = buildString {
-                append("Based on the recent chat messages below, suggest 3 natural, friendly, short replies ")
-                append("written in $targetLanguage (appropriate for a user whose UI language is $learnerUiLanguage).\n\n")
-                append("Recent messages:\n")
-                append(contextBlock.ifBlank { "No prior messages yet — suggest friendly opening greetings." })
+                append("Suggest 3 short natural replies in $targetLanguage (UI: $learnerUiLanguage):\n")
+                append(contextBlock.ifBlank { "No prior messages — suggest friendly opening greetings." })
             }
             val response = withTimeout(AI_REQUEST_TIMEOUT_MS) {
                 suggestionsModel.generateContent(prompt)
@@ -317,13 +409,13 @@ class AiLanguageAssistantService : TranslationProvider {
         speakerNames: List<String>,
         mode: String,
         uiLanguage: String
-    ): Result<String> {
-        return try {
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
             val speakers = speakerNames.joinToString(", ").ifBlank { "Room Members" }
             val prompt = when (mode) {
-                "game" -> "Host a quick, fun 1-round voice party game (e.g. Two Truths & A Lie prompt, Rapid Word Association, or Story Chain) tailored for room '$roomTitle' ($topic) with speakers $speakers. Keep it energetic, clear, and written in $uiLanguage (max 80 words)."
-                "summary" -> "Write a structured, friendly session summary and key takeaways for the live voice room '$roomTitle' ($topic) featuring speakers: $speakers. Write in $uiLanguage (max 120 words)."
-                else -> "Suggest 2 engaging conversation icebreaker questions for voice room '$roomTitle' ($topic) in $uiLanguage (max 70 words)."
+                "game" -> "Host a quick 1-round voice party game for room '$roomTitle' ($topic) with $speakers in $uiLanguage (max 70 words)."
+                "summary" -> "Write a concise friendly summary for voice room '$roomTitle' ($topic) with speakers: $speakers, in $uiLanguage (max 100 words)."
+                else -> "Suggest 2 engaging icebreaker questions for voice room '$roomTitle' ($topic) in $uiLanguage (max 60 words)."
             }
             val response = withTimeout(AI_REQUEST_TIMEOUT_MS) {
                 coachModel.generateContent(prompt)
@@ -345,11 +437,11 @@ class AiLanguageAssistantService : TranslationProvider {
         draft: String,
         category: String,
         uiLanguage: String
-    ): Result<String> {
+    ): Result<String> = withContext(Dispatchers.IO) {
         val clean = draft.trim()
-        if (clean.isBlank()) return Result.failure(IllegalArgumentException("Write a short draft first."))
-        return try {
-            val prompt = "Improve clarity, warmth, and engagement for this social community post in category '$category'. Keep the author's original language and meaning, add 2 relevant hashtags if appropriate, and return ONLY the polished post text without quotes or commentary:\n\n$clean"
+        if (clean.isBlank()) return@withContext Result.failure(IllegalArgumentException("Write a short draft first."))
+        try {
+            val prompt = "Improve clarity and warmth for this '$category' post in its original language, add 2 relevant hashtags if appropriate, return ONLY the polished text:\n\n$clean"
             val response = withTimeout(AI_REQUEST_TIMEOUT_MS) {
                 coachModel.generateContent(prompt)
             }

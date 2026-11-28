@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -14,23 +15,38 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,7 +56,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -78,6 +96,7 @@ import com.example.ui.screens.feed.FeedScreen
 import com.example.ui.screens.learning.LanguageLearningHubModal
 import com.example.ui.screens.notifications.NotificationsDialog
 import com.example.ui.screens.profile.ProfileScreen
+import com.example.ui.screens.profile.SettingsScreen
 import com.example.ui.screens.voiceroom.ActiveVoiceRoomModal
 import com.example.ui.screens.voiceroom.VoiceRoomsScreen
 import com.example.ui.theme.VibeRoomTheme
@@ -92,17 +111,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         configureAppCheck(this, intent)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         handleAuthIntent(intent)
         setContent {
-            val appTheme by viewModel.appTheme.collectAsState()
-            val themeMode by viewModel.themeMode.collectAsState()
-            val accentColorHex by viewModel.accentColorHex.collectAsState()
-            val appLanguage by viewModel.appLanguage.collectAsState()
+            val appTheme by viewModel.appTheme.collectAsStateWithLifecycle()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val accentColorHex by viewModel.accentColorHex.collectAsStateWithLifecycle()
+            val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
 
             VibeRoomTheme(
                 appTheme = appTheme,
                 themeMode = themeMode,
-                accentColorHex = accentColorHex
+                accentColorHex = accentColorHex,
+                appLanguage = appLanguage
             ) {
                 CompositionLocalProvider(
                     LocalLayoutDirection provides appLanguage.layoutDirection
@@ -144,16 +167,16 @@ fun VibeRoomRoot(viewModel: VibeRoomViewModel) {
         viewModel.attachContext(context)
     }
 
-    val onboardingStep by viewModel.onboardingStep.collectAsState()
-    val registrationForm by viewModel.registrationForm.collectAsState()
-    val showCountryPicker by viewModel.showCountryPicker.collectAsState()
-    val appLanguage by viewModel.appLanguage.collectAsState()
-    val isCountryLocked by viewModel.isCurrentUserCountryLocked.collectAsState()
-    val isSavingProfile by viewModel.isSavingProfile.collectAsState()
-    val authFlowMessage by viewModel.authFlowMessage.collectAsState()
-    val incomingEmailLink by viewModel.incomingEmailLink.collectAsState()
-    val isHandlingEmailLink by viewModel.isHandlingEmailLink.collectAsState()
-    val emailVerifyReturnStep by viewModel.emailVerifyReturnStep.collectAsState()
+    val onboardingStep by viewModel.onboardingStep.collectAsStateWithLifecycle()
+    val registrationForm by viewModel.registrationForm.collectAsStateWithLifecycle()
+    val showCountryPicker by viewModel.showCountryPicker.collectAsStateWithLifecycle()
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val isCountryLocked by viewModel.isCurrentUserCountryLocked.collectAsStateWithLifecycle()
+    val isSavingProfile by viewModel.isSavingProfile.collectAsStateWithLifecycle()
+    val authFlowMessage by viewModel.authFlowMessage.collectAsStateWithLifecycle()
+    val incomingEmailLink by viewModel.incomingEmailLink.collectAsStateWithLifecycle()
+    val isHandlingEmailLink by viewModel.isHandlingEmailLink.collectAsStateWithLifecycle()
+    val emailVerifyReturnStep by viewModel.emailVerifyReturnStep.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -310,42 +333,48 @@ fun VibeRoomApp(
     viewModel: VibeRoomViewModel,
     modifier: Modifier = Modifier
 ) {
-    val activeTab by viewModel.activeTab.collectAsState()
-    val activeChatId by viewModel.activeChatConversationId.collectAsState()
-    val conversations by viewModel.conversations.collectAsState()
-    val activeRoom by viewModel.activeRoom.collectAsState()
-    val showActiveRoomModal by viewModel.showActiveRoomModal.collectAsState()
-    val isMicMuted by viewModel.isMicMuted.collectAsState()
-    val appLanguage by viewModel.appLanguage.collectAsState()
-    val showLearningHubModal by viewModel.showLearningHubModal.collectAsState()
-    val showNotificationsDialog by viewModel.showNotificationsDialog.collectAsState()
-    val notifications by viewModel.notifications.collectAsState()
-    val incomingCall by viewModel.incomingCall.collectAsState()
-    val activeCall by viewModel.activeCall.collectAsState()
-    val isCallMuted by viewModel.isCallMuted.collectAsState()
-    val isCallSpeakerOn by viewModel.isCallSpeakerOn.collectAsState()
-    val callDurationSec by viewModel.callDurationSec.collectAsState()
-    val isCallMediaConnected by viewModel.isCallMediaConnected.collectAsState()
-    val currentUser by viewModel.currentUser.collectAsState()
-    val selectedUserProfile by viewModel.selectedUserProfile.collectAsState()
-    val followListSheet by viewModel.followListSheet.collectAsState()
-    val reportingUser by viewModel.reportingUser.collectAsState()
-    val incomingRequests by viewModel.incomingFriendRequests.collectAsState()
-    val outgoingRequests by viewModel.outgoingFriendRequests.collectAsState()
-    val followingIds by viewModel.followingIds.collectAsState()
-    val firestorePosts by viewModel.firestorePosts.collectAsState()
-    val filteredUsers by viewModel.filteredUsers.collectAsState()
+    val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
+    val activeChatId by viewModel.activeChatConversationId.collectAsStateWithLifecycle()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val activeRoom by viewModel.activeRoom.collectAsStateWithLifecycle()
+    val showActiveRoomModal by viewModel.showActiveRoomModal.collectAsStateWithLifecycle()
+    val isMicMuted by viewModel.isMicMuted.collectAsStateWithLifecycle()
+    val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val showLearningHubModal by viewModel.showLearningHubModal.collectAsStateWithLifecycle()
+    val showNotificationsDialog by viewModel.showNotificationsDialog.collectAsStateWithLifecycle()
+    val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val incomingCall by viewModel.incomingCall.collectAsStateWithLifecycle()
+    val activeCall by viewModel.activeCall.collectAsStateWithLifecycle()
+    val isCallMuted by viewModel.isCallMuted.collectAsStateWithLifecycle()
+    val isCallSpeakerOn by viewModel.isCallSpeakerOn.collectAsStateWithLifecycle()
+    val callDurationSec by viewModel.callDurationSec.collectAsStateWithLifecycle()
+    val isCallMediaConnected by viewModel.isCallMediaConnected.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val selectedUserProfile by viewModel.selectedUserProfile.collectAsStateWithLifecycle()
+    val followListSheet by viewModel.followListSheet.collectAsStateWithLifecycle()
+    val reportingUser by viewModel.reportingUser.collectAsStateWithLifecycle()
+    val incomingRequests by viewModel.incomingFriendRequests.collectAsStateWithLifecycle()
+    val outgoingRequests by viewModel.outgoingFriendRequests.collectAsStateWithLifecycle()
+    val followingIds by viewModel.followingIds.collectAsStateWithLifecycle()
+    val firestorePosts by viewModel.firestorePosts.collectAsStateWithLifecycle()
+    val filteredUsers by viewModel.filteredUsers.collectAsStateWithLifecycle()
 
     val unreadCount = conversations.sumOf { it.unreadCount }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val isInChatDetail = currentRoute == VibeRoutes.CHAT_DETAIL
-    val displayedTab = VibeRoutes.toTab(currentRoute) ?: activeTab
+    val isInSettings = currentRoute == VibeRoutes.SETTINGS
+    val displayedTab = when {
+        isInChatDetail -> NavigationTab.CHATS
+        isInSettings -> NavigationTab.PROFILE
+        else -> VibeRoutes.toTab(currentRoute) ?: activeTab
+    }
 
     LaunchedEffect(activeTab) {
+        val routeNow = navController.currentBackStackEntry?.destination?.route ?: return@LaunchedEffect
         val targetRoute = VibeRoutes.fromTab(activeTab)
-        if (currentRoute != targetRoute && currentRoute != VibeRoutes.CHAT_DETAIL) {
+        if (routeNow != targetRoute && routeNow != VibeRoutes.CHAT_DETAIL && routeNow != VibeRoutes.SETTINGS) {
             navController.navigate(targetRoute) {
                 popUpTo(navController.graph.findStartDestination().id) {
                     saveState = true
@@ -357,14 +386,15 @@ fun VibeRoomApp(
     }
 
     LaunchedEffect(activeChatId) {
+        val routeNow = navController.currentBackStackEntry?.destination?.route ?: return@LaunchedEffect
         if (activeChatId != null) {
             val chatRoute = VibeRoutes.chatDetail(activeChatId!!)
-            if (currentRoute != VibeRoutes.CHAT_DETAIL) {
+            if (routeNow != VibeRoutes.CHAT_DETAIL) {
                 navController.navigate(chatRoute) {
                     launchSingleTop = true
                 }
             }
-        } else if (currentRoute == VibeRoutes.CHAT_DETAIL) {
+        } else if (routeNow == VibeRoutes.CHAT_DETAIL) {
             navController.popBackStack()
         }
     }
@@ -382,7 +412,7 @@ fun VibeRoomApp(
     val navigateToTab: (NavigationTab) -> Unit = { tab ->
         viewModel.selectTab(tab)
         val targetRoute = VibeRoutes.fromTab(tab)
-        if (currentRoute != targetRoute) {
+        if (navController.currentBackStackEntry?.destination?.route != null && currentRoute != targetRoute) {
             navController.navigate(targetRoute) {
                 popUpTo(navController.graph.findStartDestination().id) {
                     saveState = true
@@ -399,17 +429,29 @@ fun VibeRoomApp(
             .background(MaterialTheme.colorScheme.background)
     ) {
         val useNavigationRail = maxWidth >= 600.dp
+        val useTwoPaneChat = maxWidth >= 840.dp
+        val isFullScreenSinglePaneChat = isInChatDetail && !useTwoPaneChat
+        val isFullScreenSettings = isInSettings && !useNavigationRail
+        val hideChrome = isFullScreenSinglePaneChat || isFullScreenSettings
 
         Row(modifier = Modifier.fillMaxSize()) {
-            if (useNavigationRail && !isInChatDetail) {
+            if (useNavigationRail && !hideChrome) {
                 VibeRoomNavigationRail(
                     currentTab = displayedTab,
                     unreadChatsCount = unreadCount,
                     currentLanguage = appLanguage,
                     onTabSelected = navigateToTab,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .windowInsetsPadding(WindowInsets.statusBars)
+                    modifier = Modifier.fillMaxHeight()
+                )
+            }
+
+            val outerScaffoldInsets = when {
+                hideChrome -> WindowInsets(0, 0, 0, 0)
+                useNavigationRail -> WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom
+                )
+                else -> WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal
                 )
             }
 
@@ -418,14 +460,10 @@ fun VibeRoomApp(
                     .weight(1f)
                     .fillMaxHeight()
                     .testTag("viberoom_main_scaffold"),
-                contentWindowInsets = if (isInChatDetail) WindowInsets(0, 0, 0, 0) else WindowInsets.statusBars,
+                contentWindowInsets = outerScaffoldInsets,
                 bottomBar = {
-                    if (!isInChatDetail) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                        ) {
+                    if (!hideChrome) {
+                        if (useNavigationRail) {
                             if (!showActiveRoomModal) {
                                 FloatingActiveVoiceBar(
                                     room = activeRoom,
@@ -433,11 +471,28 @@ fun VibeRoomApp(
                                     currentLanguage = appLanguage,
                                     onExpand = viewModel::openActiveRoomModal,
                                     onToggleMic = viewModel::toggleMic,
-                                    onLeave = viewModel::leaveVoiceRoom
+                                    onLeave = viewModel::leaveVoiceRoom,
+                                    barInsets = WindowInsets.safeDrawing.only(
+                                        WindowInsetsSides.Bottom + WindowInsetsSides.End
+                                    )
                                 )
                             }
+                        } else {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                if (!showActiveRoomModal) {
+                                    FloatingActiveVoiceBar(
+                                        room = activeRoom,
+                                        isMuted = isMicMuted,
+                                        currentLanguage = appLanguage,
+                                        onExpand = viewModel::openActiveRoomModal,
+                                        onToggleMic = viewModel::toggleMic,
+                                        onLeave = viewModel::leaveVoiceRoom,
+                                        barInsets = WindowInsets.safeDrawing.only(
+                                            WindowInsetsSides.Horizontal
+                                        )
+                                    )
+                                }
 
-                            if (!useNavigationRail) {
                                 VibeRoomBottomBar(
                                     currentTab = displayedTab,
                                     unreadChatsCount = unreadCount,
@@ -449,12 +504,14 @@ fun VibeRoomApp(
                     }
                 }
             ) { innerPadding ->
+                val initialDestination = remember { VibeRoutes.fromTab(activeTab) }
                 NavHost(
                     navController = navController,
-                    startDestination = VibeRoutes.VOICE_ROOMS,
+                    startDestination = initialDestination,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .consumeWindowInsets(innerPadding)
                 ) {
                     composable(VibeRoutes.VOICE_ROOMS) {
                         VoiceRoomsScreen(viewModel = viewModel)
@@ -463,38 +520,75 @@ fun VibeRoomApp(
                         FeedScreen(viewModel = viewModel)
                     }
                     composable(VibeRoutes.CHATS) {
-                        ChatListScreen(viewModel = viewModel)
+                        if (useTwoPaneChat) {
+                            TwoPaneChatLayout(
+                                viewModel = viewModel,
+                                selectedConversationId = activeChatId,
+                                appLanguage = appLanguage,
+                                onBackFromDetail = { viewModel.closeChat() }
+                            )
+                        } else {
+                            ChatListScreen(viewModel = viewModel)
+                        }
                     }
                     composable(VibeRoutes.DISCOVER) {
                         DiscoverScreen(viewModel = viewModel)
                     }
                     composable(VibeRoutes.PROFILE) {
-                        ProfileScreen(viewModel = viewModel)
+                        ProfileScreen(
+                            viewModel = viewModel,
+                            onOpenSettings = {
+                                navController.navigate(VibeRoutes.SETTINGS) {
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
+                    }
+                    composable(VibeRoutes.SETTINGS) {
+                        SettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
                     composable(
                         route = VibeRoutes.CHAT_DETAIL,
                         arguments = listOf(navArgument("conversationId") { type = NavType.StringType })
                     ) { backStack ->
                         val convId = backStack.arguments?.getString("conversationId").orEmpty()
-                        ChatDetailScreen(
-                            conversationId = convId,
-                            viewModel = viewModel,
-                            onBack = {
-                                viewModel.closeChat()
-                                navController.popBackStack()
-                            }
-                        )
+                        if (useTwoPaneChat) {
+                            TwoPaneChatLayout(
+                                viewModel = viewModel,
+                                selectedConversationId = activeChatId ?: convId,
+                                appLanguage = appLanguage,
+                                onBackFromDetail = {
+                                    viewModel.closeChat()
+                                    navController.popBackStack()
+                                }
+                            )
+                        } else {
+                            ChatDetailScreen(
+                                conversationId = convId,
+                                viewModel = viewModel,
+                                showBackButton = true,
+                                onBack = {
+                                    viewModel.closeChat()
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
 
-        val inAppNotification by viewModel.inAppNotification.collectAsState()
+        val inAppNotification by viewModel.inAppNotification.collectAsStateWithLifecycle()
         inAppNotification?.let { notif ->
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 48.dp, start = 20.dp, end = 20.dp)
+                    .statusBarsPadding()
+                    .displayCutoutPadding()
+                    .padding(top = 8.dp, start = 20.dp, end = 20.dp)
                     .align(Alignment.TopCenter)
             ) {
                 Surface(
@@ -524,6 +618,38 @@ fun VibeRoomApp(
                 viewModel = viewModel,
                 onMinimize = viewModel::closeActiveRoomModal,
                 onLeave = viewModel::leaveVoiceRoom
+            )
+        }
+
+        val roomEndedNoticeTitle by viewModel.roomEndedNoticeTitle.collectAsStateWithLifecycle()
+        roomEndedNoticeTitle?.let { endedTitle ->
+            val cleanTitle = endedTitle.trim().ifBlank { AppStrings.t("voice_rooms", appLanguage) }
+            val bodyTemplate = AppStrings.t("vr_room_ended_polite_body", appLanguage)
+            val bodyText = if (bodyTemplate.contains("%s")) {
+                bodyTemplate.replace("%s", cleanTitle)
+            } else {
+                "$cleanTitle — $bodyTemplate"
+            }
+            AlertDialog(
+                onDismissRequest = viewModel::dismissRoomEndedNotice,
+                modifier = Modifier.testTag("room_ended_dialog"),
+                title = {
+                    Text(
+                        text = AppStrings.t("vr_room_ended_title", appLanguage),
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(text = bodyText)
+                },
+                confirmButton = {
+                    Button(
+                        onClick = viewModel::dismissRoomEndedNotice,
+                        modifier = Modifier.testTag("room_ended_ok_button")
+                    ) {
+                        Text(AppStrings.t("vr_ok_return", appLanguage))
+                    }
+                }
             )
         }
 
@@ -648,6 +774,80 @@ fun VibeRoomApp(
                     viewModel.submitReport(reason, details)
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun TwoPaneChatLayout(
+    viewModel: VibeRoomViewModel,
+    selectedConversationId: String?,
+    appLanguage: com.example.ui.localization.AppLanguage,
+    onBackFromDetail: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("two_pane_chat_layout")
+    ) {
+        ChatListScreen(
+            viewModel = viewModel,
+            selectedConversationId = selectedConversationId,
+            modifier = Modifier
+                .width(340.dp)
+                .fillMaxHeight()
+        )
+        VerticalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!selectedConversationId.isNullOrBlank()) {
+                ChatDetailScreen(
+                    conversationId = selectedConversationId,
+                    viewModel = viewModel,
+                    showBackButton = false,
+                    onBack = onBackFromDetail
+                )
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .padding(32.dp)
+                        .testTag("two_pane_chat_empty")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = AppStrings.t("select_chat_hint_title", appLanguage),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = AppStrings.t("select_chat_hint_desc", appLanguage),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
         }
     }
 }

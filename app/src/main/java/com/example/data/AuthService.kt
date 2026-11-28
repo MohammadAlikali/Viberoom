@@ -198,6 +198,17 @@ class AuthService(private val context: Context) {
         prefs.edit().clear().apply()
     }
 
+    suspend fun clearCredentialAndPendingState() {
+        clearPendingRegistration()
+        withContext(NonCancellable) {
+            try {
+                credentialManager.clearCredentialState(ClearCredentialStateRequest())
+            } catch (e: Exception) {
+                Log.w("AuthService", "Failed to clear credential state: ${e.message}")
+            }
+        }
+    }
+
     fun sendSignInEmailLink(
         email: String,
         scope: CoroutineScope,

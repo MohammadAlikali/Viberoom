@@ -11,15 +11,18 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,8 +113,7 @@ fun SplashScreen(
                     )
                 )
             )
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .testTag("splash_screen"),
         contentAlignment = Alignment.Center
     ) {
@@ -185,8 +187,7 @@ fun WelcomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .verticalScroll(rememberScrollState())
             .padding(24.dp)
             .testTag("welcome_screen"),
@@ -423,9 +424,7 @@ fun RegisterScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(24.dp)
             .testTag("register_screen")
@@ -789,9 +788,7 @@ fun OtpVerificationScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(24.dp)
             .testTag("otp_screen"),
@@ -1042,9 +1039,7 @@ fun PersonalInfoScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(24.dp)
             .verticalScroll(rememberScrollState())
             .testTag("personal_info_screen")
@@ -1217,8 +1212,7 @@ fun ChooseInterestsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .padding(24.dp)
             .testTag("choose_interests_screen")
     ) {
@@ -1294,8 +1288,7 @@ fun ChooseLanguagesScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .padding(24.dp)
             .testTag("choose_languages_screen")
     ) {
@@ -1377,57 +1370,66 @@ fun PermissionIntroScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .padding(24.dp)
             .testTag("permission_intro_screen"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(text = "🎉", fontSize = 52.sp)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = AppStrings.t("almost_ready", appLanguage),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = AppStrings.t("permissions_desc", appLanguage),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) {
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
-            } else null,
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                PermissionExplanationItem(
-                    icon = Icons.Filled.Lock,
-                    title = AppStrings.t("country_region", appLanguage),
-                    subtitle = AppStrings.t("country_locked_note", appLanguage)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = "🎉", fontSize = 52.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = AppStrings.t("almost_ready", appLanguage),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
                 )
-                PermissionExplanationItem(
-                    icon = Icons.Filled.Mic,
-                    title = AppStrings.t("nav_rooms", appLanguage),
-                    subtitle = AppStrings.t("voice_rooms_subtitle", appLanguage)
-                )
-                PermissionExplanationItem(
-                    icon = Icons.Filled.Notifications,
-                    title = AppStrings.t("nav_messages", appLanguage),
-                    subtitle = AppStrings.t("messages_subtitle", appLanguage)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = AppStrings.t("permissions_desc", appLanguage),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
             }
+
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+                } else null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    PermissionExplanationItem(
+                        icon = Icons.Filled.Lock,
+                        title = AppStrings.t("country_region", appLanguage),
+                        subtitle = AppStrings.t("country_locked_note", appLanguage)
+                    )
+                    PermissionExplanationItem(
+                        icon = Icons.Filled.Mic,
+                        title = AppStrings.t("nav_rooms", appLanguage),
+                        subtitle = AppStrings.t("voice_rooms_subtitle", appLanguage)
+                    )
+                    PermissionExplanationItem(
+                        icon = Icons.Filled.Notifications,
+                        title = AppStrings.t("nav_messages", appLanguage),
+                        subtitle = AppStrings.t("messages_subtitle", appLanguage)
+                    )
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = onFinish,

@@ -17,11 +17,16 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.luminance
 import com.example.model.UserProfile
 import com.example.ui.localization.AppLanguage
@@ -200,8 +206,8 @@ fun UserProfileCard(
 
                             Spacer(modifier = Modifier.height(4.dp))
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
+                            FlowRow(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 CountryFlagBadge(
@@ -285,9 +291,9 @@ fun UserProfileCard(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                             modifier = Modifier
-                                .height(40.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("edit_profile_button")
                         ) {
                             Icon(
@@ -310,12 +316,12 @@ fun UserProfileCard(
                                 containerColor = followButtonBg,
                                 contentColor = followButtonContentColor
                             ),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                             elevation = ButtonDefaults.buttonElevation(
                                 defaultElevation = if (user.isFollowing) 0.dp else 2.dp
                             ),
                             modifier = Modifier
-                                .height(40.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("follow_button_${user.id}")
                         ) {
                             AnimatedContent(
@@ -521,13 +527,13 @@ fun UserProfileCard(
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                     ),
                                     modifier = Modifier
-                                        .height(36.dp)
+                                        .heightIn(min = 48.dp)
                                         .testTag("wave_button_${user.id}")
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.WavingHand,
                                         contentDescription = AppStrings.t("wave", appLanguage),
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(15.dp)
                                     )
                                     Spacer(modifier = Modifier.width(5.dp))
                                     Text(
@@ -542,9 +548,9 @@ fun UserProfileCard(
                                 OutlinedButton(
                                     onClick = onMessageClick,
                                     shape = RoundedCornerShape(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                     modifier = Modifier
-                                        .height(36.dp)
+                                        .heightIn(min = 48.dp)
                                         .testTag("message_button_${user.id}")
                                 ) {
                                     Icon(
@@ -632,12 +638,22 @@ fun EditBioAndInterestsDialog(
     onDismiss: () -> Unit,
     onSave: (bio: String, interests: List<String>) -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
         EditBioAndInterestsContent(
             currentBio = currentBio,
             currentInterests = currentInterests,
             onDismiss = onDismiss,
-            onSave = onSave
+            onSave = onSave,
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         )
     }
 }
@@ -661,13 +677,11 @@ fun EditBioAndInterestsContent(
         tonalElevation = 6.dp,
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp)
             .testTag("edit_profile_dialog")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .padding(22.dp)
         ) {
             Row(
@@ -680,7 +694,7 @@ fun EditBioAndInterestsContent(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                     Icon(
                         imageVector = Icons.Filled.Close,
                         contentDescription = AppStrings.t("close", appLanguage),
@@ -691,53 +705,60 @@ fun EditBioAndInterestsContent(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            Text(
-                text = AppStrings.t("short_bio", appLanguage),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            OutlinedTextField(
-                value = bioText,
-                onValueChange = { if (it.length <= 500) bioText = it },
-                placeholder = { Text("Share what you love, your background, or topics you'd enjoy discussing...") },
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("edit_profile_bio_input"),
-                shape = RoundedCornerShape(14.dp),
-                minLines = 3,
-                maxLines = 5,
-                supportingText = {
-                    Text(
-                        text = "${bioText.length}/500",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = AppStrings.t("pick_interests_from_list", appLanguage),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            CategorizedInterestsPicker(
-                selectedInterests = selectedInterestsList,
-                onToggleInterest = { topic ->
-                    selectedInterestsList = if (selectedInterestsList.any { it.equals(topic, ignoreCase = true) }) {
-                        selectedInterestsList.filterNot { it.equals(topic, ignoreCase = true) }
-                    } else {
-                        selectedInterestsList + topic
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = AppStrings.t("short_bio", appLanguage),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = bioText,
+                    onValueChange = { if (it.length <= 500) bioText = it },
+                    placeholder = { Text("Share what you love, your background, or topics you'd enjoy discussing...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("edit_profile_bio_input"),
+                    shape = RoundedCornerShape(14.dp),
+                    minLines = 3,
+                    maxLines = 5,
+                    supportingText = {
+                        Text(
+                            text = "${bioText.length}/500",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                },
-                appLanguage = appLanguage,
-                containerTag = "edit_profile_interests_input"
-            )
+                )
 
-            Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = AppStrings.t("pick_interests_from_list", appLanguage),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                CategorizedInterestsPicker(
+                    selectedInterests = selectedInterestsList,
+                    onToggleInterest = { topic ->
+                        selectedInterestsList = if (selectedInterestsList.any { it.equals(topic, ignoreCase = true) }) {
+                            selectedInterestsList.filterNot { it.equals(topic, ignoreCase = true) }
+                        } else {
+                            selectedInterestsList + topic
+                        }
+                    },
+                    appLanguage = appLanguage,
+                    containerTag = "edit_profile_interests_input"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

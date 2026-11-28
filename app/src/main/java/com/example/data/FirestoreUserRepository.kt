@@ -364,10 +364,97 @@ class FirestoreUserRepository(private val db: FirebaseFirestore) {
         }
     }
 
+    private suspend fun deleteDocumentsInChunks(refs: List<com.google.firebase.firestore.DocumentReference>) {
+        if (refs.isEmpty()) return
+        refs.distinctBy { it.path }.chunked(450).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { batch.delete(it) }
+            batch.commit().await()
+        }
+    }
+
+    private suspend fun deleteBestEffort(label: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("FirestoreUserRepo", "Best-effort cleanup skipped for $label: ${e.message}")
+        }
+    }
+
     suspend fun deleteOwnAccountData(): Result<Unit> {
         return try {
             val uid = requireUserId()
-            db.collection("users").document(uid).delete().await()
+            val userDocRef = db.collection("users").document(uid)
+
+            // 1. Delete private user subcollections first (allowed for request.auth.uid == userId)
+            listOf("blocked", "saved_posts", "vocabulary", "notifications").forEach { sub ->
+                deleteBestEffort("users/$uid/$sub") {
+                    val snap = userDocRef.collection(sub).get().await()
+                    deleteDocumentsInChunks(snap.documents.map { it.reference })
+                }
+            }
+
+            // 2. Delete outgoing follow edges created by this user
+            deleteBestEffort("follows") {
+                val followSnap = db.collection("follows")
+                    .whereEqualTo("followerId", uid)
+                    .get()
+                    .await()
+                deleteDocumentsInChunks(followSnap.documents.map { it.reference })
+            }
+
+            // 3. Delete sent and received friend requests
+            deleteBestEffort("friend_requests") {
+                val sent = db.collection("friend_requests").whereEqualTo("senderId", uid).get().await()
+                val received = db.collection("friend_requests").whereEqualTo("receiverId", uid).get().await()
+                deleteDocumentsInChunks((sent.documents + received.documents).map { it.reference })
+            }
+
+            // 4. Delete authored posts (and this user's comments under those posts)
+            deleteBestEffort("posts") {
+                val postSnap = db.collection("posts").whereEqualTo("authorId", uid).get().await()
+                for (postDoc in postSnap.documents) {
+                    deleteBestEffort("posts/${postDoc.id}/comments") {
+                        val commentSnap = postDoc.reference.collection("comments")
+                            .whereEqualTo("authorId", uid)
+                            .get()
+                            .await()
+                        deleteDocumentsInChunks(commentSnap.documents.map { it.reference })
+                    }
+                }
+                deleteDocumentsInChunks(postSnap.documents.map { it.reference })
+            }
+
+            // 5. Delete authored stories
+            deleteBestEffort("stories") {
+                val storySnap = db.collection("stories").whereEqualTo("authorId", uid).get().await()
+                deleteDocumentsInChunks(storySnap.documents.map { it.reference })
+            }
+
+            // 6. Delete hosted voice rooms and their subcollections (must clean subcollections before room doc)
+            deleteBestEffort("voice_rooms") {
+                val roomSnap = db.collection("voice_rooms").whereEqualTo("hostId", uid).get().await()
+                for (roomDoc in roomSnap.documents) {
+                    val roomRef = roomDoc.reference
+                    listOf("peers", "events", "polls").forEach { sub ->
+                        deleteBestEffort("voice_rooms/${roomDoc.id}/$sub") {
+                            val subSnap = roomRef.collection(sub).get().await()
+                            deleteDocumentsInChunks(subSnap.documents.map { it.reference })
+                        }
+                    }
+                    deleteBestEffort("voice_rooms/${roomDoc.id}/signals") {
+                        val sentSignals = roomRef.collection("signals").whereEqualTo("fromUserId", uid).get().await()
+                        val recvSignals = roomRef.collection("signals").whereEqualTo("toUserId", uid).get().await()
+                        deleteDocumentsInChunks((sentSignals.documents + recvSignals.documents).map { it.reference })
+                    }
+                }
+                deleteDocumentsInChunks(roomSnap.documents.map { it.reference })
+            }
+
+            // 7. Finally delete the primary user profile document
+            userDocRef.delete().await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

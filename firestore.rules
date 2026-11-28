@@ -145,6 +145,17 @@ service cloud.firestore {
              (!('isPrivate' in data) || data.isPrivate is bool) &&
              (!('coHostIds' in data) || data.coHostIds == null || isValidStringList(data.coHostIds, 10)) &&
              (!('aiSummary' in data) || data.aiSummary == null || (data.aiSummary is string && data.aiSummary.size() <= 1500)) &&
+             (!('lifecycleState' in data) || data.lifecycleState in ['CREATED', 'WAITING', 'LIVE', 'ENDING', 'ENDED', 'EXPIRED']) &&
+             (!('backgroundTheme' in data) || data.backgroundTheme == null || (data.backgroundTheme is string && data.backgroundTheme.size() <= 40)) &&
+             (!('isStageLocked' in data) || data.isStageLocked is bool) &&
+             (!('moderatorIds' in data) || data.moderatorIds == null || isValidStringList(data.moderatorIds, 20)) &&
+             (!('bannedIds' in data) || data.bannedIds == null || isValidStringList(data.bannedIds, 100)) &&
+             (!('invitedSpeakerIds' in data) || data.invitedSpeakerIds == null || isValidStringList(data.invitedSpeakerIds, 30)) &&
+             (!('successorHostId' in data) || data.successorHostId == null || (data.successorHostId is string && data.successorHostId.size() <= 128)) &&
+             (!('pinnedNotice' in data) || data.pinnedNotice == null || (data.pinnedNotice is string && data.pinnedNotice.size() <= 300)) &&
+             (!('maxAudioParticipants' in data) || (data.maxAudioParticipants is int && data.maxAudioParticipants >= 2 && data.maxAudioParticipants <= 6)) &&
+             (!('temporaryBans' in data) || data.temporaryBans == null || (data.temporaryBans is map && data.temporaryBans.size() <= 100)) &&
+             (!('hostLastHeartbeatMs' in data) || (data.hostLastHeartbeatMs is int && data.hostLastHeartbeatMs >= 0)) &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
@@ -406,14 +417,119 @@ service cloud.firestore {
       }
     }
 
-    function isHostUpdatingRoom() {
-      return (existing().hostId == request.auth.uid ||
-              ('coHostIds' in existing() && existing().coHostIds is list && request.auth.uid in existing().coHostIds)) &&
-             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'category', 'hostCountry', 'hostFlagEmoji', 'hostAvatarColor', 'isLive', 'listenersCount', 'speakersCount', 'activeSpeakerId', 'tags', 'isPrivate', 'coHostIds', 'aiSummary', 'updatedAt']);
+    function isRoomDataLive(roomData) {
+      return roomData.isLive == true &&
+             (!('lifecycleState' in roomData) || roomData.lifecycleState in ['CREATED', 'WAITING', 'LIVE']);
     }
 
-    function isListenerJoiningOrLeavingRoom() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['listenersCount', 'updatedAt']);
+    function isRoomLive(roomId) {
+      return exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
+             isRoomDataLive(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data);
+    }
+
+    function isRoomModerator(roomData) {
+      return roomData.hostId == request.auth.uid ||
+             ('coHostIds' in roomData && roomData.coHostIds is list && request.auth.uid in roomData.coHostIds) ||
+             ('moderatorIds' in roomData && roomData.moderatorIds is list && request.auth.uid in roomData.moderatorIds);
+    }
+
+    function isRoomDataNotBanned(roomData) {
+      return (
+               !('bannedIds' in roomData) ||
+               !(roomData.bannedIds is list) ||
+               !(request.auth.uid in roomData.bannedIds)
+             ) &&
+             (
+               !('temporaryBans' in roomData) ||
+               !(roomData.temporaryBans is map) ||
+               !(request.auth.uid in roomData.temporaryBans) ||
+               !(roomData.temporaryBans[request.auth.uid] is int) ||
+               roomData.temporaryBans[request.auth.uid] <= request.time.toMillis()
+             );
+    }
+
+    function isNotBannedFromRoom(roomId) {
+      return !exists(/databases/$(database)/documents/voice_rooms/$(roomId)) ||
+             isRoomDataNotBanned(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data);
+    }
+
+    function canClaimSpeakerRole(roomId) {
+      return !exists(/databases/$(database)/documents/voice_rooms/$(roomId)) ||
+             !('isStageLocked' in get(/databases/$(database)/documents/voice_rooms/$(roomId)).data) ||
+             get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.isStageLocked != true ||
+             isRoomModerator(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data) ||
+             (
+               'invitedSpeakerIds' in get(/databases/$(database)/documents/voice_rooms/$(roomId)).data &&
+               get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.invitedSpeakerIds is list &&
+               request.auth.uid in get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.invitedSpeakerIds
+             );
+    }
+
+    function isValidRoomPeerFields(data) {
+      return data.displayName is string && data.displayName.size() <= 100 &&
+             data.isSpeaker is bool &&
+             data.isMuted is bool &&
+             (!('hostMuted' in data) || data.hostMuted is bool) &&
+             (!('seatIndex' in data) || (data.seatIndex is int && data.seatIndex >= -1 && data.seatIndex <= 5)) &&
+             (!('isHandRaised' in data) || data.isHandRaised is bool) &&
+             (!('flagEmoji' in data) || (data.flagEmoji is string && data.flagEmoji.size() <= 10)) &&
+             (!('avatarFrame' in data) || (data.avatarFrame is string && data.avatarFrame.size() <= 40)) &&
+             (!('avatarColorHex' in data) || data.avatarColorHex is int) &&
+             (!('lastHeartbeatMs' in data) || (data.lastHeartbeatMs is int && data.lastHeartbeatMs >= 0)) &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function hostNotTargetedByBan(existingRoom, incomingRoom) {
+      return (!('bannedIds' in incomingRoom) || !(existingRoom.hostId in incomingRoom.bannedIds)) &&
+             (!('temporaryBans' in incomingRoom) || !(existingRoom.hostId in incomingRoom.temporaryBans));
+    }
+
+    function isHostUpdatingRoom(res, req) {
+      return res.hostId == request.auth.uid &&
+             req.keys().hasOnly([
+               'title', 'description', 'category', 'hostId', 'hostName',
+               'hostCountry', 'hostFlagEmoji', 'hostAvatarColor', 'isLive',
+               'listenersCount', 'speakersCount', 'activeSpeakerId', 'tags',
+               'isPrivate', 'coHostIds', 'aiSummary', 'lifecycleState',
+               'backgroundTheme', 'isStageLocked', 'moderatorIds', 'bannedIds',
+               'invitedSpeakerIds', 'successorHostId', 'pinnedNotice',
+               'maxAudioParticipants', 'temporaryBans', 'hostLastHeartbeatMs', 'createdAt', 'updatedAt'
+             ]);
+    }
+
+    function isStaffUpdatingLiveRoom(res, req) {
+      return res.isLive == true &&
+             req.hostId == res.hostId &&
+             (!('bannedIds' in req) || !(res.hostId in req.bannedIds)) &&
+             (!('temporaryBans' in req) || !(res.hostId in req.temporaryBans)) &&
+             (
+               (
+                 ('coHostIds' in res && res.coHostIds is list && request.auth.uid in res.coHostIds) &&
+                 req.diff(res).affectedKeys().hasOnly([
+                   'aiSummary', 'backgroundTheme', 'isStageLocked', 'pinnedNotice',
+                   'bannedIds', 'temporaryBans', 'invitedSpeakerIds', 'activeSpeakerId',
+                   'speakersCount', 'listenersCount', 'updatedAt'
+                 ])
+               ) ||
+               (
+                 ('moderatorIds' in res && res.moderatorIds is list && request.auth.uid in res.moderatorIds) &&
+                 req.diff(res).affectedKeys().hasOnly([
+                   'backgroundTheme', 'isStageLocked', 'pinnedNotice',
+                   'bannedIds', 'temporaryBans', 'invitedSpeakerIds', 'updatedAt'
+                 ])
+               )
+             );
+    }
+
+    function isListenerJoiningOrLeavingRoom(res, req) {
+      return res.isLive == true &&
+             (!('lifecycleState' in res) || res.lifecycleState in ['CREATED', 'WAITING', 'LIVE']) &&
+             isRoomDataNotBanned(res) &&
+             req.isLive == true &&
+             req.listenersCount >= 0 &&
+             req.listenersCount <= res.listenersCount + 1 &&
+             res.listenersCount - req.listenersCount <= 1 &&
+             req.diff(res).affectedKeys().hasOnly(['listenersCount', 'updatedAt']);
     }
 
     match /voice_rooms/{roomId} {
@@ -424,17 +540,28 @@ service cloud.firestore {
                        incoming().hostId == request.auth.uid &&
                        incoming().isLive == true &&
                        incoming().keys().hasAll(['title', 'category', 'hostId', 'hostName', 'isLive', 'listenersCount', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['title', 'description', 'category', 'hostId', 'hostName', 'hostCountry', 'hostFlagEmoji', 'hostAvatarColor', 'isLive', 'listenersCount', 'speakersCount', 'activeSpeakerId', 'tags', 'isPrivate', 'coHostIds', 'aiSummary', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'title', 'description', 'category', 'hostId', 'hostName',
+                         'hostCountry', 'hostFlagEmoji', 'hostAvatarColor', 'isLive',
+                         'listenersCount', 'speakersCount', 'activeSpeakerId', 'tags',
+                         'isPrivate', 'coHostIds', 'aiSummary', 'lifecycleState',
+                         'backgroundTheme', 'isStageLocked', 'moderatorIds', 'bannedIds',
+                         'invitedSpeakerIds', 'successorHostId', 'pinnedNotice',
+                         'maxAudioParticipants', 'temporaryBans', 'hostLastHeartbeatMs', 'createdAt', 'updatedAt'
+                       ]) &&
                        incoming().createdAt is timestamp &&
                        incoming().createdAt <= request.time &&
                        isValidVoiceRoom(incoming());
 
       allow update: if isSignedIn() &&
                        isValidId(roomId) &&
-                       incoming().hostId == existing().hostId &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidVoiceRoom(incoming()) &&
-                       (isHostUpdatingRoom() || isListenerJoiningOrLeavingRoom());
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       (
+                         isHostUpdatingRoom(resource.data, request.resource.data) ||
+                         isStaffUpdatingLiveRoom(resource.data, request.resource.data) ||
+                         isListenerJoiningOrLeavingRoom(resource.data, request.resource.data)
+                       ) &&
+                       isValidVoiceRoom(request.resource.data);
 
       allow delete: if isSignedIn() && isValidId(roomId) && existing().hostId == request.auth.uid;
 
@@ -445,45 +572,47 @@ service cloud.firestore {
                          isValidId(peerId) &&
                          peerId == request.auth.uid &&
                          incoming().userId == request.auth.uid &&
+                         isRoomLive(roomId) &&
+                         isNotBannedFromRoom(roomId) &&
+                         (!incoming().isSpeaker || canClaimSpeakerRole(roomId)) &&
+                         (!('hostMuted' in incoming()) || incoming().hostMuted == false) &&
                          incoming().keys().hasAll(['userId', 'displayName', 'isSpeaker', 'isMuted', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['userId', 'displayName', 'isSpeaker', 'isMuted', 'isHandRaised', 'flagEmoji', 'avatarFrame', 'avatarColorHex', 'updatedAt']) &&
-                         incoming().displayName is string && incoming().displayName.size() <= 100 &&
-                         incoming().isSpeaker is bool &&
-                         incoming().isMuted is bool &&
-                         (!('isHandRaised' in incoming()) || incoming().isHandRaised is bool) &&
-                         (!('flagEmoji' in incoming()) || (incoming().flagEmoji is string && incoming().flagEmoji.size() <= 10)) &&
-                         (!('avatarFrame' in incoming()) || (incoming().avatarFrame is string && incoming().avatarFrame.size() <= 40)) &&
-                         (!('avatarColorHex' in incoming()) || incoming().avatarColorHex is int) &&
-                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+                         incoming().keys().hasOnly([
+                           'userId', 'displayName', 'isSpeaker', 'isMuted', 'hostMuted',
+                           'seatIndex', 'isHandRaised', 'flagEmoji', 'avatarFrame',
+                           'avatarColorHex', 'lastHeartbeatMs', 'updatedAt'
+                         ]) &&
+                         isValidRoomPeerFields(incoming());
         allow update: if isSignedIn() &&
                          isValidId(roomId) &&
                          isValidId(peerId) &&
+                         isRoomLive(roomId) &&
                          incoming().userId == existing().userId &&
                          incoming().keys().hasAll(['userId', 'displayName', 'isSpeaker', 'isMuted', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['userId', 'displayName', 'isSpeaker', 'isMuted', 'isHandRaised', 'flagEmoji', 'avatarFrame', 'avatarColorHex', 'updatedAt']) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'displayName', 'isSpeaker', 'isMuted', 'hostMuted',
+                           'seatIndex', 'isHandRaised', 'flagEmoji', 'avatarFrame',
+                           'avatarColorHex', 'lastHeartbeatMs', 'updatedAt'
+                         ]) &&
                          (
-                           peerId == request.auth.uid ||
+                           (
+                             peerId == request.auth.uid &&
+                             isNotBannedFromRoom(roomId) &&
+                             (
+                               (('hostMuted' in existing()) && existing().hostMuted == true)
+                                 ? (('hostMuted' in incoming()) && incoming().hostMuted == true && incoming().isMuted == true)
+                                 : (!('hostMuted' in incoming()) || incoming().hostMuted == false)
+                             ) &&
+                             (!incoming().isSpeaker || existing().isSpeaker == true || canClaimSpeakerRole(roomId))
+                           ) ||
                            (
                              exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
-                             (
-                               get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.hostId == request.auth.uid ||
-                               (
-                                 'coHostIds' in get(/databases/$(database)/documents/voice_rooms/$(roomId)).data &&
-                                 get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.coHostIds is list &&
-                                 request.auth.uid in get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.coHostIds
-                               )
-                             ) &&
-                             incoming().diff(existing()).affectedKeys().hasOnly(['isSpeaker', 'isMuted', 'isHandRaised', 'updatedAt'])
+                             isRoomModerator(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data) &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['isSpeaker', 'isMuted', 'hostMuted', 'isHandRaised', 'seatIndex', 'updatedAt']) &&
+                             (!incoming().diff(existing()).affectedKeys().hasAny(['isMuted']) || incoming().isMuted == true)
                            )
                          ) &&
-                         incoming().displayName is string && incoming().displayName.size() <= 100 &&
-                         incoming().isSpeaker is bool &&
-                         incoming().isMuted is bool &&
-                         (!('isHandRaised' in incoming()) || incoming().isHandRaised is bool) &&
-                         (!('flagEmoji' in incoming()) || (incoming().flagEmoji is string && incoming().flagEmoji.size() <= 10)) &&
-                         (!('avatarFrame' in incoming()) || (incoming().avatarFrame is string && incoming().avatarFrame.size() <= 40)) &&
-                         (!('avatarColorHex' in incoming()) || incoming().avatarColorHex is int) &&
-                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+                         isValidRoomPeerFields(incoming());
         allow delete: if isSignedIn() &&
                          isValidId(roomId) &&
                          isValidId(peerId) &&
@@ -491,7 +620,7 @@ service cloud.firestore {
                            peerId == request.auth.uid ||
                            (
                              exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
-                             get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.hostId == request.auth.uid
+                             isRoomModerator(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data)
                            )
                          );
       }
@@ -502,6 +631,8 @@ service cloud.firestore {
         allow create: if isSignedIn() &&
                          isValidId(roomId) &&
                          isValidId(signalId) &&
+                         isRoomLive(roomId) &&
+                         isNotBannedFromRoom(roomId) &&
                          incoming().fromUserId == request.auth.uid &&
                          isValidId(incoming().toUserId) &&
                          incoming().toUserId != request.auth.uid &&
@@ -514,6 +645,98 @@ service cloud.firestore {
                          incoming().createdAt is timestamp && incoming().createdAt <= request.time;
         allow update: if false;
         allow delete: if isSignedIn() && isValidId(roomId) && isValidId(signalId) && (existing().fromUserId == request.auth.uid || existing().toUserId == request.auth.uid);
+      }
+
+      match /events/{eventId} {
+        allow get, list: if isSignedIn() && isValidId(roomId);
+        allow create: if isSignedIn() &&
+                         isValidId(roomId) &&
+                         isValidId(eventId) &&
+                         isRoomLive(roomId) &&
+                         isNotBannedFromRoom(roomId) &&
+                         incoming().roomId == roomId &&
+                         incoming().senderId == request.auth.uid &&
+                         incoming().type in ['entrance', 'gift', 'sound', 'reaction', 'chat', 'system'] &&
+                         (
+                           incoming().type != 'system' ||
+                           (
+                             exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
+                             isRoomModerator(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data)
+                           )
+                         ) &&
+                         incoming().senderName is string && incoming().senderName.size() >= 1 && incoming().senderName.size() <= 100 &&
+                         (!('senderFlag' in incoming()) || (incoming().senderFlag is string && incoming().senderFlag.size() <= 12)) &&
+                         (!('senderVipLevel' in incoming()) || (incoming().senderVipLevel is int && incoming().senderVipLevel >= 1 && incoming().senderVipLevel <= 100)) &&
+                         (!('payloadId' in incoming()) || (incoming().payloadId is string && incoming().payloadId.size() <= 80)) &&
+                         (!('text' in incoming()) || (incoming().text is string && incoming().text.size() <= 600)) &&
+                         (!('recipientId' in incoming()) || incoming().recipientId == null || (incoming().recipientId is string && incoming().recipientId.size() <= 128)) &&
+                         (!('recipientName' in incoming()) || incoming().recipientName == null || (incoming().recipientName is string && incoming().recipientName.size() <= 100)) &&
+                         (!('giftValueXp' in incoming()) || (incoming().giftValueXp is int && incoming().giftValueXp >= 0 && incoming().giftValueXp <= 1000)) &&
+                         incoming().timestampMs is int && incoming().timestampMs >= 0 &&
+                         incoming().keys().hasAll(['roomId', 'type', 'senderId', 'senderName', 'timestampMs', 'createdAt']) &&
+                         incoming().keys().hasOnly([
+                           'roomId', 'type', 'senderId', 'senderName', 'senderFlag',
+                           'senderVipLevel', 'payloadId', 'text', 'recipientId',
+                           'recipientName', 'giftValueXp', 'timestampMs', 'createdAt'
+                         ]) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+        allow update: if false;
+        allow delete: if isSignedIn() &&
+                         isValidId(roomId) &&
+                         isValidId(eventId) &&
+                         (
+                           existing().senderId == request.auth.uid ||
+                           (
+                             exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
+                             get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.hostId == request.auth.uid
+                           )
+                         );
+      }
+
+      match /polls/{pollId} {
+        allow get, list: if isSignedIn() && isValidId(roomId);
+        allow create: if isSignedIn() &&
+                         isValidId(roomId) &&
+                         isValidId(pollId) &&
+                         isRoomLive(roomId) &&
+                         isNotBannedFromRoom(roomId) &&
+                         incoming().roomId == roomId &&
+                         incoming().createdById == request.auth.uid &&
+                         incoming().question is string && incoming().question.size() >= 2 && incoming().question.size() <= 200 &&
+                         incoming().options is list && incoming().options.size() >= 2 && incoming().options.size() <= 5 &&
+                         incoming().votes is map && incoming().votes.size() == 0 &&
+                         incoming().isClosed is bool &&
+                         incoming().createdAtMs is int &&
+                         incoming().keys().hasAll(['roomId', 'question', 'options', 'votes', 'createdById', 'createdByName', 'isClosed', 'createdAtMs', 'createdAt']) &&
+                         incoming().keys().hasOnly(['roomId', 'question', 'options', 'votes', 'createdById', 'createdByName', 'isClosed', 'createdAtMs', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+        allow update: if isSignedIn() &&
+                         isValidId(roomId) &&
+                         isValidId(pollId) &&
+                         isRoomLive(roomId) &&
+                         isNotBannedFromRoom(roomId) &&
+                         incoming().createdById == existing().createdById &&
+                         incoming().roomId == existing().roomId &&
+                         (
+                           (existing().isClosed == false &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['votes']) &&
+                            incoming().votes is map && incoming().votes.size() <= 1000) ||
+                           ((existing().createdById == request.auth.uid ||
+                             (exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
+                              isRoomModerator(get(/databases/$(database)/documents/voice_rooms/$(roomId)).data))) &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['isClosed']) &&
+                            incoming().isClosed is bool)
+                         );
+        allow delete: if isSignedIn() &&
+                         isValidId(roomId) &&
+                         isValidId(pollId) &&
+                         (
+                           existing().createdById == request.auth.uid ||
+                           (
+                             exists(/databases/$(database)/documents/voice_rooms/$(roomId)) &&
+                             get(/databases/$(database)/documents/voice_rooms/$(roomId)).data.hostId == request.auth.uid
+                           )
+                         );
       }
     }
 

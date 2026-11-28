@@ -116,7 +116,7 @@ class ProfilePickersAndTranslationTest {
         composeTestRule.onNodeWithTag("create_room_title_input").performTextInput("Dari & English Club")
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("submit_create_room")
-            .performScrollTo()
+            .assertIsDisplayed()
             .performClick()
         composeTestRule.waitForIdle()
 

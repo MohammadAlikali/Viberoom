@@ -10,10 +10,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
@@ -66,6 +75,7 @@ object VibeRoutes {
     const val CHATS = "chats"
     const val DISCOVER = "discover"
     const val PROFILE = "profile"
+    const val SETTINGS = "settings"
     const val CHAT_DETAIL = "chat/{conversationId}"
 
     fun chatDetail(conversationId: String): String =
@@ -99,7 +109,10 @@ fun VibeRoomNavigationRail(
 ) {
     NavigationRail(
         modifier = modifier.testTag("vibe_navigation_rail"),
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        windowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Vertical + WindowInsetsSides.Start
+        )
     ) {
         NavigationTab.entries.forEach { tab ->
             val isSelected = currentTab == tab
@@ -177,7 +190,10 @@ fun VibeRoomBottomBar(
     NavigationBar(
         modifier = modifier.testTag("vibe_bottom_nav"),
         containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp,
+        windowInsets = NavigationBarDefaults.windowInsets.union(
+            WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)
+        )
     ) {
         NavigationTab.entries.forEach { tab ->
             val isSelected = currentTab == tab
@@ -254,7 +270,8 @@ fun FloatingActiveVoiceBar(
     onExpand: () -> Unit,
     onToggleMic: () -> Unit,
     onLeave: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    barInsets: WindowInsets = WindowInsets(0, 0, 0, 0)
 ) {
     AnimatedVisibility(
         visible = room != null,
@@ -270,6 +287,7 @@ fun FloatingActiveVoiceBar(
                 shadowElevation = 8.dp,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .windowInsetsPadding(barInsets)
                     .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(

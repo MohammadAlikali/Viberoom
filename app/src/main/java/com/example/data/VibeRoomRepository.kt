@@ -80,11 +80,17 @@ class VibeRoomRepository(
     private val _isMicMuted = MutableStateFlow(true)
     val isMicMuted: StateFlow<Boolean> = _isMicMuted.asStateFlow()
 
+    private val _isHostMuted = MutableStateFlow(false)
+    val isHostMuted: StateFlow<Boolean> = _isHostMuted.asStateFlow()
+
     private val _isHandRaised = MutableStateFlow(false)
     val isHandRaised: StateFlow<Boolean> = _isHandRaised.asStateFlow()
 
     private val _isSpeaker = MutableStateFlow(false)
     val isSpeaker: StateFlow<Boolean> = _isSpeaker.asStateFlow()
+
+    private val _mySeatIndex = MutableStateFlow(-1)
+    val mySeatIndex: StateFlow<Int> = _mySeatIndex.asStateFlow()
 
     private val _activeReactions = MutableStateFlow<List<RoomReaction>>(emptyList())
     val activeReactions: StateFlow<List<RoomReaction>> = _activeReactions.asStateFlow()
@@ -216,6 +222,11 @@ class VibeRoomRepository(
         _conversations.value = emptyList()
         _messages.value = emptyMap()
         _activeRoom.value = null
+        _isMicMuted.value = true
+        _isHostMuted.value = false
+        _isHandRaised.value = false
+        _isSpeaker.value = false
+        _mySeatIndex.value = -1
         _blockedUserIds.value = emptySet()
         _followingIds.value = emptySet()
         _followerIds.value = emptySet()
@@ -973,15 +984,10 @@ class VibeRoomRepository(
     fun joinVoiceRoom(room: VoiceRoom) {
         _activeRoom.value = room
         _isMicMuted.value = true
+        _isHostMuted.value = false
         _isHandRaised.value = false
         _isSpeaker.value = false
-        _voiceRooms.update { list ->
-            list.map { r ->
-                if (r.id == room.id) {
-                    r.copy(listenersCount = r.listenersCount + 1)
-                } else r
-            }
-        }
+        _mySeatIndex.value = -1
     }
 
     fun leaveVoiceRoom() {
@@ -997,14 +1003,29 @@ class VibeRoomRepository(
         }
         _activeRoom.value = null
         _isMicMuted.value = true
+        _isHostMuted.value = false
         _isHandRaised.value = false
         _isSpeaker.value = false
+        _mySeatIndex.value = -1
     }
 
-    fun setMySpeakerState(speaker: Boolean, muted: Boolean, handRaised: Boolean = false) {
+    fun setMySpeakerState(
+        speaker: Boolean,
+        muted: Boolean,
+        handRaised: Boolean = false,
+        seatIndex: Int = _mySeatIndex.value
+    ) {
         _isSpeaker.value = speaker
-        _isMicMuted.value = muted
+        _isMicMuted.value = if (_isHostMuted.value) true else muted
         _isHandRaised.value = handRaised
+        _mySeatIndex.value = if (speaker) seatIndex else -1
+    }
+
+    fun setHostMutedState(hostMuted: Boolean) {
+        _isHostMuted.value = hostMuted
+        if (hostMuted) {
+            _isMicMuted.value = true
+        }
     }
 
     fun syncActiveRoomPeers(
@@ -1013,21 +1034,40 @@ class VibeRoomRepository(
         connectedWebRtcPeerIds: Set<String> = emptySet()
     ) {
         val current = _activeRoom.value ?: return
+        val nowMs = System.currentTimeMillis()
+        val peerStaleMs = 75_000L
         val speakerProfiles = mutableListOf<UserProfile>()
         val listenerProfiles = mutableListOf<UserProfile>()
         val raised = mutableSetOf<String>()
         val muted = mutableSetOf<String>()
+        val hostMutedIds = mutableSetOf<String>()
+        val seatMap = linkedMapOf<Int, String>()
 
-        val myPeer = peers.firstOrNull { (it.userId.ifBlank { it.id }) == myUid }
-        if (myPeer != null) {
-            _isSpeaker.value = myPeer.isSpeaker
-            _isMicMuted.value = myPeer.isMuted
-            _isHandRaised.value = myPeer.isHandRaised
+        val validPeers = peers.filter { peer ->
+            val pid = peer.userId.ifBlank { peer.id }
+            if (pid.isBlank() || pid == "guest_user") return@filter false
+            if (current.isUserBanned(pid, nowMs)) return@filter false
+            val alive = peer.lastHeartbeatMs == 0L || (nowMs - peer.lastHeartbeatMs) <= peerStaleMs
+            alive || pid == myUid
         }
 
-        peers.forEach { peer ->
+        val myPeer = validPeers.firstOrNull { (it.userId.ifBlank { it.id }) == myUid }
+        if (myPeer != null) {
+            _isSpeaker.value = myPeer.isSpeaker
+            _isHostMuted.value = myPeer.hostMuted
+            _isMicMuted.value = if (myPeer.hostMuted) true else myPeer.isMuted
+            _isHandRaised.value = myPeer.isHandRaised
+            _mySeatIndex.value = if (myPeer.isSpeaker) myPeer.seatIndex else -1
+        }
+
+        val maxSpeakers = current.maxAudioParticipants.coerceIn(2, 6)
+        val sortedPeers = validPeers.sortedWith(
+            compareByDescending<FirestoreRoomPeer> { (it.userId.ifBlank { it.id }) == current.host.id }
+                .thenBy { if (it.seatIndex in 0..5) it.seatIndex else Int.MAX_VALUE }
+        )
+
+        sortedPeers.forEach { peer ->
             val pid = peer.userId.ifBlank { peer.id }
-            if (pid.isBlank()) return@forEach
             val profile = getUserById(pid) ?: UserProfile(
                 id = pid,
                 name = peer.displayName.ifBlank { "Member" },
@@ -1041,31 +1081,66 @@ class VibeRoomRepository(
                 isOnline = true
             )
             if (peer.isHandRaised) raised.add(pid)
-            if (peer.isMuted) muted.add(pid)
-            if (peer.isSpeaker || pid == current.host.id) {
+            if (peer.isMuted || peer.hostMuted) muted.add(pid)
+            if (peer.hostMuted) hostMutedIds.add(pid)
+
+            val onStage = peer.isSpeaker || pid == current.host.id
+            if (onStage && speakerProfiles.size < maxSpeakers) {
                 speakerProfiles.add(profile)
+                val requestedSeat = when {
+                    pid == current.host.id && !seatMap.containsKey(0) -> 0
+                    peer.seatIndex in 0..5 && !seatMap.containsKey(peer.seatIndex) -> peer.seatIndex
+                    else -> (0..5).firstOrNull { !seatMap.containsKey(it) }
+                }
+                if (requestedSeat != null) {
+                    seatMap[requestedSeat] = pid
+                }
             } else {
                 listenerProfiles.add(profile)
             }
         }
 
-        if (speakerProfiles.none { it.id == current.host.id }) {
+        if (current.isLive && current.host.id.isNotBlank() && current.host.id != "guest_user" &&
+            speakerProfiles.none { it.id == current.host.id }
+        ) {
+            if (speakerProfiles.size >= maxSpeakers && speakerProfiles.isNotEmpty()) {
+                val displaced = speakerProfiles.removeAt(speakerProfiles.lastIndex)
+                listenerProfiles.add(0, displaced)
+                seatMap.entries.removeIf { it.value == displaced.id }
+            }
             speakerProfiles.add(0, current.host)
+            if (!seatMap.containsValue(current.host.id)) {
+                val seatForHost = if (!seatMap.containsKey(0)) 0 else (0..5).firstOrNull { !seatMap.containsKey(it) }
+                if (seatForHost != null) seatMap[seatForHost] = current.host.id
+            }
         }
 
+        val distinctSpeakers = speakerProfiles.distinctBy { it.id }.take(maxSpeakers)
+        val speakerIdSet = distinctSpeakers.map { it.id }.toSet()
+        seatMap.entries.removeIf { it.value !in speakerIdSet }
+        val distinctListeners = (listenerProfiles + speakerProfiles.filter { it.id !in speakerIdSet })
+            .distinctBy { it.id }
+            .filterNot { it.id in speakerIdSet }
+
         val updatedRoom = current.copy(
-            speakers = speakerProfiles.distinctBy { it.id },
-            listeners = listenerProfiles.distinctBy { it.id },
-            listenersCount = (speakerProfiles.size + listenerProfiles.size).coerceAtLeast(current.listenersCount.coerceAtMost(1)),
+            speakers = distinctSpeakers,
+            listeners = distinctListeners,
+            listenersCount = (distinctSpeakers.size + distinctListeners.size),
             raisedHandIds = raised,
             mutedPeerIds = muted,
+            hostMutedPeerIds = hostMutedIds,
+            seatAssignments = seatMap,
             connectedPeerIds = connectedWebRtcPeerIds,
-            activeSpeakerId = speakerProfiles.firstOrNull { it.id !in muted }?.id ?: current.activeSpeakerId
+            activeSpeakerId = null
         )
         _activeRoom.value = updatedRoom
     }
 
     fun toggleMic() {
+        if (_isHostMuted.value) {
+            _isMicMuted.value = true
+            return
+        }
         if (_isSpeaker.value) {
             _isMicMuted.update { !it }
         } else {
@@ -1075,7 +1150,13 @@ class VibeRoomRepository(
             val me = _currentUser.value
             _activeRoom.update { room ->
                 if (room != null && room.speakers.none { it.id == me.id }) {
-                    room.copy(speakers = room.speakers + me, activeSpeakerId = me.id)
+                    val freeSeat = (0..5).firstOrNull { !room.seatAssignments.containsKey(it) } ?: 0
+                    _mySeatIndex.value = freeSeat
+                    room.copy(
+                        speakers = room.speakers + me,
+                        seatAssignments = room.seatAssignments + (freeSeat to me.id),
+                        activeSpeakerId = null
+                    )
                 } else room
             }
         }
@@ -1105,7 +1186,10 @@ class VibeRoomRepository(
         description: String,
         category: RoomCategory,
         tags: List<String>,
-        isPrivate: Boolean = false
+        isPrivate: Boolean = false,
+        backgroundTheme: String = "aurora",
+        isStageLocked: Boolean = false,
+        startMuted: Boolean = false
     ): VoiceRoom {
         val me = _currentUser.value
         val newRoom = VoiceRoom(
@@ -1115,24 +1199,76 @@ class VibeRoomRepository(
             category = category,
             host = me,
             speakers = listOf(me),
-            activeSpeakerId = me.id,
+            activeSpeakerId = null,
             listenersCount = 1,
             isLive = true,
             tags = tags,
-            isPrivate = isPrivate
+            isPrivate = isPrivate,
+            lifecycleState = com.example.model.RoomLifecycleState.LIVE,
+            backgroundTheme = backgroundTheme.ifBlank { "aurora" },
+            isStageLocked = isStageLocked,
+            maxAudioParticipants = 6,
+            mutedPeerIds = if (startMuted) setOf(me.id) else emptySet(),
+            updatedAtMs = System.currentTimeMillis()
         )
         _voiceRooms.update { listOf(newRoom) + it }
         joinVoiceRoom(newRoom)
         _isSpeaker.value = true
-        _isMicMuted.value = false
+        _isMicMuted.value = startMuted
         return newRoom
     }
 
-    fun updateActiveRoomMetadata(coHostIds: Set<String>? = null, aiSummary: String? = null) {
+    fun syncRemoteActiveRoom(remoteRoom: VoiceRoom) {
+        val current = _activeRoom.value ?: return
+        if (current.id != remoteRoom.id) return
+        _activeRoom.value = current.copy(
+            title = remoteRoom.title,
+            description = remoteRoom.description,
+            host = if (remoteRoom.host.id != current.host.id) {
+                getUserById(remoteRoom.host.id) ?: remoteRoom.host
+            } else {
+                current.host
+            },
+            isLive = remoteRoom.isLive,
+            coHostIds = remoteRoom.coHostIds,
+            aiSummary = remoteRoom.aiSummary ?: current.aiSummary,
+            lifecycleState = remoteRoom.lifecycleState,
+            backgroundTheme = remoteRoom.backgroundTheme,
+            isStageLocked = remoteRoom.isStageLocked,
+            moderatorIds = remoteRoom.moderatorIds,
+            bannedIds = remoteRoom.bannedIds,
+            invitedSpeakerIds = remoteRoom.invitedSpeakerIds,
+            successorHostId = remoteRoom.successorHostId,
+            pinnedNotice = remoteRoom.pinnedNotice,
+            maxAudioParticipants = remoteRoom.maxAudioParticipants,
+            temporaryBanExpiries = remoteRoom.temporaryBanExpiries,
+            hostLastHeartbeatMs = remoteRoom.hostLastHeartbeatMs
+        )
+    }
+
+    fun updateActiveRoomMetadata(
+        coHostIds: Set<String>? = null,
+        aiSummary: String? = null,
+        backgroundTheme: String? = null,
+        isStageLocked: Boolean? = null,
+        moderatorIds: Set<String>? = null,
+        bannedIds: Set<String>? = null,
+        invitedSpeakerIds: Set<String>? = null,
+        successorHostId: String? = null,
+        pinnedNotice: String? = null,
+        clearPinnedNotice: Boolean = false
+    ) {
         _activeRoom.update { room ->
             room?.copy(
                 coHostIds = coHostIds ?: room.coHostIds,
-                aiSummary = aiSummary ?: room.aiSummary
+                aiSummary = aiSummary ?: room.aiSummary,
+                backgroundTheme = backgroundTheme ?: room.backgroundTheme,
+                isStageLocked = isStageLocked ?: room.isStageLocked,
+                moderatorIds = moderatorIds ?: room.moderatorIds,
+                bannedIds = bannedIds ?: room.bannedIds,
+                invitedSpeakerIds = invitedSpeakerIds ?: room.invitedSpeakerIds,
+                successorHostId = successorHostId ?: room.successorHostId,
+                pinnedNotice = if (clearPinnedNotice) null else (pinnedNotice ?: room.pinnedNotice)
             )
         }
     }

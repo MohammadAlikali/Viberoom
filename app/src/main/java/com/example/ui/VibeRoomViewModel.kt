@@ -1,8 +1,11 @@
 package com.example.ui
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AiLanguageAssistantService
@@ -27,22 +30,34 @@ import com.example.data.MediaAttachmentHelper
 import com.example.data.UserPreferencesStore
 import com.example.data.VibeRoomRepository
 import com.example.data.VideoAttachmentResult
+import com.example.data.VoiceSoundboardEngine
 import com.example.data.WebRtcVoiceManager
+import com.example.model.ActiveEntranceVisual
+import com.example.model.ActiveGiftVisual
 import com.example.model.AiCoachTurn
 import com.example.model.AiTaskState
+import com.example.model.AudioRouteMode
 import com.example.model.ChatMessage
 import com.example.model.Community
 import com.example.model.Conversation
 import com.example.model.Country
+import com.example.model.EntranceStyle
 import com.example.model.LanguageExercise
 import com.example.model.OnboardingStep
 import com.example.model.RegistrationForm
+import com.example.model.RoomBackgroundTheme
 import com.example.model.RoomCategory
+import com.example.model.RoomLifecycleState
 import com.example.model.RoomReaction
+import com.example.model.SupporterRankEntry
 import com.example.model.TranslationResult
 import com.example.model.UserProfile
 import com.example.model.VibeCatalogs
+import com.example.model.VoiceGift
+import com.example.model.VoiceGiftCatalog
 import com.example.model.VoiceRoom
+import com.example.model.VoiceRoomLiveEvent
+import com.example.model.VoiceRoomPoll
 import com.example.ui.localization.AppLanguage
 import com.example.ui.localization.AppStrings
 import com.example.ui.theme.AppTheme
@@ -53,6 +68,7 @@ import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -67,6 +83,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.UUID
 
 enum class NavigationTab(val title: String) {
@@ -85,6 +103,15 @@ data class FollowListSheetState(
 class VibeRoomViewModel(
     val repository: VibeRoomRepository = VibeRoomRepository()
 ) : ViewModel() {
+
+    private var customAiLanguageService: AiLanguageAssistantService? = null
+
+    internal constructor(
+        repository: VibeRoomRepository,
+        aiService: AiLanguageAssistantService
+    ) : this(repository) {
+        customAiLanguageService = aiService
+    }
 
     // Onboarding & Auth
     val onboardingStep: StateFlow<OnboardingStep> = repository.onboardingStep
@@ -298,14 +325,32 @@ class VibeRoomViewModel(
     private val _voiceRoomsError = MutableStateFlow<String?>(null)
     val voiceRoomsError: StateFlow<String?> = _voiceRoomsError.asStateFlow()
 
+    private val _isCreatingRoom = MutableStateFlow(false)
+    val isCreatingRoom: StateFlow<Boolean> = _isCreatingRoom.asStateFlow()
+
+    private val _roomEndedNoticeTitle = MutableStateFlow<String?>(null)
+    val roomEndedNoticeTitle: StateFlow<String?> = _roomEndedNoticeTitle.asStateFlow()
+
+    fun dismissRoomEndedNotice() {
+        _roomEndedNoticeTitle.value = null
+    }
+
     val filteredVoiceRooms: StateFlow<List<VoiceRoom>> = combine(
         _firestoreVoiceRooms,
         repository.voiceRooms,
-        _selectedRoomCategory
-    ) { firestoreRooms, localRooms, category ->
-        val sourceRooms = if (firestoreRooms.isNotEmpty()) firestoreRooms else localRooms
-        if (category == RoomCategory.ALL) sourceRooms
-        else sourceRooms.filter { it.category == category }
+        _selectedRoomCategory,
+        repository.currentUser
+    ) { firestoreRooms, localRooms, category, me ->
+        val now = System.currentTimeMillis()
+        val isSignedIn = me.id.isNotBlank() && me.id != "guest_user"
+        val sourceRooms = if (isSignedIn) firestoreRooms else localRooms
+        val visibleRooms = sourceRooms.filter { room ->
+            room.isLive &&
+                room.lifecycleState.isDiscoverable() &&
+                !room.isUserBanned(me.id, now)
+        }
+        if (category == RoomCategory.ALL) visibleRooms
+        else visibleRooms.filter { it.category == category }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Repository forwards
@@ -315,8 +360,10 @@ class VibeRoomViewModel(
     val communities: StateFlow<List<Community>> = repository.communities
     val activeRoom: StateFlow<VoiceRoom?> = repository.activeRoom
     val isMicMuted: StateFlow<Boolean> = repository.isMicMuted
+    val isHostMuted: StateFlow<Boolean> = repository.isHostMuted
     val isHandRaised: StateFlow<Boolean> = repository.isHandRaised
     val isSpeaker: StateFlow<Boolean> = repository.isSpeaker
+    val mySeatIndex: StateFlow<Int> = repository.mySeatIndex
     val activeReactions: StateFlow<List<RoomReaction>> = repository.activeReactions
     val isDarkMode: StateFlow<Boolean> = repository.isDarkMode
     val appTheme: StateFlow<AppTheme> = repository.appTheme
@@ -540,7 +587,10 @@ class VibeRoomViewModel(
     private var firestoreLearningRepo: FirestoreLearningRepository? = null
     private var firestoreCallRepo: FirestoreCallRepository? = null
     private var webRtcVoiceManager: WebRtcVoiceManager? = null
-    private val aiLanguageService: AiLanguageAssistantService by lazy { AiLanguageAssistantService() }
+    private val soundboardEngine: VoiceSoundboardEngine by lazy { VoiceSoundboardEngine() }
+    private val defaultAiLanguageService: AiLanguageAssistantService by lazy { AiLanguageAssistantService() }
+    private val aiLanguageService: AiLanguageAssistantService
+        get() = customAiLanguageService ?: defaultAiLanguageService
 
     private var preferencesJob: Job? = null
     private var userProfileJob: Job? = null
@@ -565,8 +615,27 @@ class VibeRoomViewModel(
     private var activeCallTimerJob: Job? = null
     private var roomPeersJob: Job? = null
     private var roomSignalsJob: Job? = null
+    private var activeRoomDocJob: Job? = null
+    private var roomHeartbeatJob: Job? = null
+    private var roomEventsJob: Job? = null
+    private var roomPollsJob: Job? = null
+    private var giftQueueRunnerJob: Job? = null
+    private var entranceQueueRunnerJob: Job? = null
     private var aiCoachJob: Job? = null
+    private var manualTranslationJob: Job? = null
+    private var exerciseJob: Job? = null
+    private var activeCoachRequestSignature: String? = null
+    private val autoTranslateSemaphore = Semaphore(2)
     private var authStateListener: FirebaseAuth.AuthStateListener? = null
+
+    private var roomJoinedAtMs: Long = 0L
+    private var isInitiatedLocalLeave: Boolean = false
+    private var lastNotifiedHostMuted: Boolean = false
+    private var lastSentMessageSignature: String = ""
+    private var lastSentMessageAtMs: Long = 0L
+    private val processedRoomEventKeys = mutableSetOf<String>()
+    private val pendingGiftQueue = ArrayDeque<ActiveGiftVisual>()
+    private val pendingEntranceQueue = ArrayDeque<ActiveEntranceVisual>()
 
     private val _firestorePosts = MutableStateFlow<List<FirestorePost>>(emptyList())
     val firestorePosts: StateFlow<List<FirestorePost>> = _firestorePosts.asStateFlow()
@@ -611,11 +680,76 @@ class VibeRoomViewModel(
     private val _connectedRoomPeerIds = MutableStateFlow<Set<String>>(emptySet())
     val connectedRoomPeerIds: StateFlow<Set<String>> = _connectedRoomPeerIds.asStateFlow()
 
+    private val _activeSpeakingPeerIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeSpeakingPeerIds: StateFlow<Set<String>> = _activeSpeakingPeerIds.asStateFlow()
+
+    private val _localAudioLevel = MutableStateFlow(0f)
+    val localAudioLevel: StateFlow<Float> = _localAudioLevel.asStateFlow()
+
     private val _roomIceState = MutableStateFlow("idle")
     val roomIceState: StateFlow<String> = _roomIceState.asStateFlow()
 
     private val _isRoomSpeakerphone = MutableStateFlow(true)
     val isRoomSpeakerphone: StateFlow<Boolean> = _isRoomSpeakerphone.asStateFlow()
+
+    private val _audioRoute = MutableStateFlow(AudioRouteMode.SPEAKER)
+    val audioRoute: StateFlow<AudioRouteMode> = _audioRoute.asStateFlow()
+
+    private val _isBluetoothAvailable = MutableStateFlow(false)
+    val isBluetoothAvailable: StateFlow<Boolean> = _isBluetoothAvailable.asStateFlow()
+
+    private val _webrtcError = MutableStateFlow<String?>(null)
+    val webrtcError: StateFlow<String?> = _webrtcError.asStateFlow()
+
+    private val _isRoomCapacityReached = MutableStateFlow(false)
+    val isRoomCapacityReached: StateFlow<Boolean> = _isRoomCapacityReached.asStateFlow()
+
+    private val _hasMicPermission = MutableStateFlow(false)
+    val hasMicPermission: StateFlow<Boolean> = _hasMicPermission.asStateFlow()
+
+    private val _isMicCapturing = MutableStateFlow(false)
+    val isMicCapturing: StateFlow<Boolean> = _isMicCapturing.asStateFlow()
+
+    private val _micPermissionDeniedInRoom = MutableStateFlow(false)
+    val micPermissionDeniedInRoom: StateFlow<Boolean> = _micPermissionDeniedInRoom.asStateFlow()
+
+    private var pendingUnmuteAfterPermission = false
+
+    // Voice Room Interactive Engine States (Events, Chat, Polls, Gifts, Entrances, Soundboard, Preferences)
+    private val _roomEvents = MutableStateFlow<List<VoiceRoomLiveEvent>>(emptyList())
+    val roomEvents: StateFlow<List<VoiceRoomLiveEvent>> = _roomEvents.asStateFlow()
+
+    private val _roomPolls = MutableStateFlow<List<VoiceRoomPoll>>(emptyList())
+    val roomPolls: StateFlow<List<VoiceRoomPoll>> = _roomPolls.asStateFlow()
+
+    private val _supporterLeaderboard = MutableStateFlow<List<SupporterRankEntry>>(emptyList())
+    val supporterLeaderboard: StateFlow<List<SupporterRankEntry>> = _supporterLeaderboard.asStateFlow()
+
+    private val _currentGiftVisual = MutableStateFlow<ActiveGiftVisual?>(null)
+    val currentGiftVisual: StateFlow<ActiveGiftVisual?> = _currentGiftVisual.asStateFlow()
+
+    private val _currentEntranceVisual = MutableStateFlow<ActiveEntranceVisual?>(null)
+    val currentEntranceVisual: StateFlow<ActiveEntranceVisual?> = _currentEntranceVisual.asStateFlow()
+
+    private val _defaultEntranceStyle = MutableStateFlow(EntranceStyle.STANDARD)
+    val defaultEntranceStyle: StateFlow<EntranceStyle> = _defaultEntranceStyle.asStateFlow()
+
+    private val _soundEffectsVolume = MutableStateFlow(0.85f)
+    val soundEffectsVolume: StateFlow<Float> = _soundEffectsVolume.asStateFlow()
+
+    private val _enableGiftEffects = MutableStateFlow(true)
+    val enableGiftEffects: StateFlow<Boolean> = _enableGiftEffects.asStateFlow()
+
+    private val _enableEntranceAnimations = MutableStateFlow(true)
+    val enableEntranceAnimations: StateFlow<Boolean> = _enableEntranceAnimations.asStateFlow()
+
+    private val _lowPowerVisualMode = MutableStateFlow(false)
+    val lowPowerVisualMode: StateFlow<Boolean> = _lowPowerVisualMode.asStateFlow()
+
+    private val _favoriteSoundIds = MutableStateFlow<Set<String>>(setOf("welcome", "applause", "celebration"))
+    val favoriteSoundIds: StateFlow<Set<String>> = _favoriteSoundIds.asStateFlow()
+
+    val playingSoundId: StateFlow<String?> = soundboardEngine.playingSoundId
 
     // Translation Preferences (persisted via DataStore)
     private val _defaultTranslateLanguage = MutableStateFlow("")
@@ -847,6 +981,34 @@ class VibeRoomViewModel(
         viewModelScope.launch {
             rtc.roomIceState.collect { _roomIceState.value = it }
         }
+        viewModelScope.launch {
+            rtc.activeSpeakingPeerIds.collect { _activeSpeakingPeerIds.value = it }
+        }
+        viewModelScope.launch {
+            rtc.localAudioLevel.collect { _localAudioLevel.value = it }
+        }
+        viewModelScope.launch {
+            rtc.audioRoute.collect { route ->
+                _audioRoute.value = route
+                _isRoomSpeakerphone.value = (route == AudioRouteMode.SPEAKER)
+            }
+        }
+        viewModelScope.launch {
+            rtc.isBluetoothAvailable.collect { _isBluetoothAvailable.value = it }
+        }
+        viewModelScope.launch {
+            rtc.lastError.collect { _webrtcError.value = it }
+        }
+        viewModelScope.launch {
+            rtc.isRoomCapacityReached.collect { _isRoomCapacityReached.value = it }
+        }
+        viewModelScope.launch {
+            rtc.hasMicPermission.collect { _hasMicPermission.value = it }
+        }
+        viewModelScope.launch {
+            rtc.isMicCapturing.collect { _isMicCapturing.value = it }
+        }
+        refreshMicPermissionStatus()
 
         preferencesJob?.cancel()
         preferencesJob = viewModelScope.launch {
@@ -862,6 +1024,12 @@ class VibeRoomViewModel(
                 _defaultTranslateLanguage.value = prefs.defaultTranslateLanguage
                 _autoTranslateChat.value = prefs.autoTranslateChat
                 _showTranslationNotes.value = prefs.showTranslationNotes
+                _defaultEntranceStyle.value = EntranceStyle.fromId(prefs.defaultEntranceStyle)
+                _soundEffectsVolume.value = prefs.soundEffectsVolume
+                _enableGiftEffects.value = prefs.enableGiftEffects
+                _enableEntranceAnimations.value = prefs.enableEntranceAnimations
+                _lowPowerVisualMode.value = prefs.lowPowerVisualMode
+                _favoriteSoundIds.value = prefs.favoriteSoundIds
                 if (_chatTranslateLanguage.value == null && prefs.defaultTranslateLanguage.isNotBlank()) {
                     _chatTranslateLanguage.value = prefs.defaultTranslateLanguage
                 }
@@ -892,6 +1060,10 @@ class VibeRoomViewModel(
                 firestoreUserRepo?.setOnlinePresence(true, currentUser.value.showOnlineStatus)
             } catch (e: Exception) {
                 Log.w("VibeRoomViewModel", "Failed to set online presence: ${e.message}")
+            }
+            try {
+                firestoreVoiceRoomRepo?.expireStaleHostRooms(uid, expireAllLive = false)
+            } catch (_: Exception) {
             }
         }
         listenToVoiceRooms()
@@ -1059,12 +1231,30 @@ class VibeRoomViewModel(
         activeCallTimerJob?.cancel()
         roomPeersJob?.cancel()
         roomSignalsJob?.cancel()
+        activeRoomDocJob?.cancel()
+        roomHeartbeatJob?.cancel()
+        roomEventsJob?.cancel()
+        roomPollsJob?.cancel()
+        giftQueueRunnerJob?.cancel()
+        entranceQueueRunnerJob?.cancel()
         aiCoachJob?.cancel()
+        manualTranslationJob?.cancel()
+        exerciseJob?.cancel()
+        activeCoachRequestSignature = null
         webRtcVoiceManager?.endCall()
         webRtcVoiceManager?.leaveRoomAudio()
+        soundboardEngine.stopAll()
+        _isCreatingRoom.value = false
+        isInitiatedLocalLeave = false
+        lastNotifiedHostMuted = false
         _isVoiceRoomsLoading.value = false
         _voiceRoomsError.value = null
         _firestoreVoiceRooms.value = emptyList()
+        _roomEvents.value = emptyList()
+        _roomPolls.value = emptyList()
+        _supporterLeaderboard.value = emptyList()
+        _currentGiftVisual.value = null
+        _currentEntranceVisual.value = null
         _firestorePosts.value = emptyList()
         _incomingFriendRequests.value = emptyList()
         _outgoingFriendRequests.value = emptyList()
@@ -1082,6 +1272,8 @@ class VibeRoomViewModel(
         authStateListener?.let { Firebase.auth.removeAuthStateListener(it) }
         authStateListener = null
         stopFirestoreListeners()
+        webRtcVoiceManager?.dispose()
+        soundboardEngine.release()
     }
 
     fun restoreExistingSession(user: FirebaseUser, context: Context) {
@@ -1684,6 +1876,10 @@ class VibeRoomViewModel(
                 avatarUrl = fetched.avatarUrl,
                 avatarData = fetched.avatarData,
                 avatarFrame = fetched.avatarFrame?.takeIf { it.isNotBlank() } ?: "none",
+                vibeXp = fetched.vibeXp,
+                vibeLevel = fetched.vibeLevel.coerceAtLeast(1),
+                streakDays = fetched.streakDays,
+                unlockedBadges = fetched.unlockedBadges,
                 interests = fetched.interests,
                 languagesSpoken = fetched.languages,
                 nativeLanguages = fetched.nativeLanguages,
@@ -2011,8 +2207,16 @@ class VibeRoomViewModel(
             showInAppNotification(AppStrings.t("sign_in", appLanguage.value))
             return
         }
+        val nowMs = System.currentTimeMillis()
+        val dedupSig = "$conversationId|$cleanText"
+        if (dedupSig == lastSentMessageSignature && (nowMs - lastSentMessageAtMs) < 900L) {
+            return
+        }
+        lastSentMessageSignature = dedupSig
+        lastSentMessageAtMs = nowMs
+
         val ttl = _chatDisappearingTtlMs.value
-        val expiresAt = ttl.takeIf { it > 0L }?.let { System.currentTimeMillis() + it }
+        val expiresAt = ttl.takeIf { it > 0L }?.let { nowMs + it }
         _aiSmartReplies.value = emptyList()
         val msgId = repository.sendMessage(
             conversationId = conversationId,
@@ -2384,38 +2588,146 @@ class VibeRoomViewModel(
     }
 
     fun joinVoiceRoom(room: VoiceRoom) {
+        val uid = Firebase.auth.currentUser?.uid
+        val nowMs = System.currentTimeMillis()
+        if (uid != null && uid in room.bannedIds) {
+            showInAppNotification(AppStrings.t("vr_banned_notice", appLanguage.value))
+            return
+        }
+        if (uid != null && room.isUserBanned(uid, nowMs)) {
+            showInAppNotification(AppStrings.t("vr_temp_banned_notice", appLanguage.value))
+            return
+        }
+        if (!room.lifecycleState.isDiscoverable() || !room.isLive) {
+            showInAppNotification(AppStrings.t("vr_room_ended_notice", appLanguage.value))
+            return
+        }
+        webRtcVoiceManager?.clearError()
+        webRtcVoiceManager?.setHostMuted(false)
+        isInitiatedLocalLeave = false
+        lastNotifiedHostMuted = false
+        _roomEvents.value = emptyList()
+        _roomPolls.value = emptyList()
+        _supporterLeaderboard.value = emptyList()
+        processedRoomEventKeys.clear()
+        pendingGiftQueue.clear()
+        pendingEntranceQueue.clear()
+        _currentGiftVisual.value = null
+        _currentEntranceVisual.value = null
+        roomJoinedAtMs = nowMs
+
+        val hasMic = refreshMicPermissionStatus()
         repository.joinVoiceRoom(room)
+        _micPermissionDeniedInRoom.value = false
+        val uidLocal = uid
+        val shouldStartAsSpeaker = uidLocal != null && (room.host.id == uidLocal || uidLocal in room.invitedSpeakerIds)
+        val initialSeat = if (room.host.id == uidLocal) {
+            0
+        } else {
+            room.seatAssignments.entries.firstOrNull { it.value == uidLocal }?.key ?: -1
+        }
+        val startMuted = !(shouldStartAsSpeaker && hasMic)
+        pendingUnmuteAfterPermission = shouldStartAsSpeaker && !hasMic
+        if (shouldStartAsSpeaker) {
+            repository.setMySpeakerState(
+                speaker = true,
+                muted = startMuted,
+                handRaised = false,
+                seatIndex = initialSeat
+            )
+        }
         _showActiveRoomModal.value = true
         _roomAssistantOutput.value = room.aiSummary
         val repo = firestoreVoiceRoomRepo
-        val uid = Firebase.auth.currentUser?.uid
+        val me = currentUser.value
         if (repo != null && uid != null) {
             viewModelScope.launch {
                 try {
-                    repo.joinVoiceRoom(room.id)
+                    val joinResult = repo.joinVoiceRoom(room.id)
+                    if (joinResult.isFailure) {
+                        isInitiatedLocalLeave = true
+                        repository.leaveVoiceRoom()
+                        _showActiveRoomModal.value = false
+                        stopRoomWebRtcSync(room.id)
+                        showInAppNotification(AppStrings.t("vr_room_ended_notice", appLanguage.value))
+                        return@launch
+                    }
                     awardVibeXp(5)
+                    val entranceStyle = _defaultEntranceStyle.value
+                    val enterEvent = VoiceRoomLiveEvent(
+                        id = "local_${System.currentTimeMillis()}",
+                        roomId = room.id,
+                        type = "entrance",
+                        senderId = uid,
+                        senderName = me.name,
+                        senderFlag = me.flagEmoji,
+                        senderVipLevel = me.vibeLevel,
+                        payloadId = entranceStyle.id,
+                        text = entranceStyle.id,
+                        timestampMs = System.currentTimeMillis()
+                    )
+                    handleNewRoomEventSideEffects(enterEvent)
+                    repo.sendRoomEvent(enterEvent)
                 } catch (e: Exception) {
                     Log.w("VibeRoomViewModel", "Failed to sync joinVoiceRoom to Firestore: ${e.message}")
                 }
             }
-            startRoomWebRtcSync(room.id, uid, isSpeaker = (room.host.id == uid), isMuted = (room.host.id != uid))
+            startRoomWebRtcSync(
+                roomId = room.id,
+                myUid = uid,
+                isSpeaker = shouldStartAsSpeaker,
+                isMuted = startMuted,
+                seatIndex = initialSeat
+            )
         }
     }
 
-    fun leaveVoiceRoom() {
+    fun leaveVoiceRoom(forceEndRoom: Boolean = false) {
+        isInitiatedLocalLeave = true
+        lastNotifiedHostMuted = false
         val room = activeRoom.value
+        val currentUid = Firebase.auth.currentUser?.uid
         repository.leaveVoiceRoom()
         _showActiveRoomModal.value = false
         _roomAssistantOutput.value = null
         stopRoomWebRtcSync(room?.id)
         if (room != null) {
             val repo = firestoreVoiceRoomRepo
-            val currentUid = Firebase.auth.currentUser?.uid
             if (repo != null && currentUid != null) {
                 viewModelScope.launch {
                     try {
                         if (room.host.id == currentUid) {
-                            repo.endVoiceRoom(room.id)
+                            val successorId = room.successorHostId
+                                ?: if (!forceEndRoom) room.coHostIds.firstOrNull { id ->
+                                    (room.speakers + room.listeners).any { it.id == id }
+                                } else null
+                            val successorProfile = if (!forceEndRoom && !successorId.isNullOrBlank()) {
+                                (room.speakers + room.listeners).firstOrNull { it.id == successorId }
+                                    ?: repository.getUserById(successorId)
+                            } else null
+
+                            if (!forceEndRoom && successorProfile != null) {
+                                repo.sendRoomEvent(
+                                    VoiceRoomLiveEvent(
+                                        id = "sys_${System.currentTimeMillis()}",
+                                        roomId = room.id,
+                                        type = "system",
+                                        senderId = currentUid,
+                                        senderName = currentUser.value.name,
+                                        text = "${successorProfile.name} is now host",
+                                        timestampMs = System.currentTimeMillis()
+                                    )
+                                )
+                                repo.transferHostAndLeave(
+                                    roomId = room.id,
+                                    newHostId = successorProfile.id,
+                                    newHostName = successorProfile.name,
+                                    newHostCountry = successorProfile.countryName,
+                                    newHostFlag = successorProfile.flagEmoji
+                                )
+                            } else {
+                                repo.endVoiceRoom(room.id, RoomLifecycleState.ENDED)
+                            }
                         } else {
                             repo.leaveVoiceRoom(room.id)
                         }
@@ -2427,22 +2739,142 @@ class VibeRoomViewModel(
         }
     }
 
+    fun endVoiceRoomNow() {
+        leaveVoiceRoom(forceEndRoom = true)
+    }
+
+    fun refreshMicPermissionStatus(): Boolean {
+        val ctx = appContext
+        val granted = if (ctx != null) {
+            try {
+                ContextCompat.checkSelfPermission(
+                    ctx,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+            } catch (_: Throwable) {
+                false
+            }
+        } else {
+            _hasMicPermission.value
+        }
+        _hasMicPermission.value = granted
+        if (granted) {
+            _micPermissionDeniedInRoom.value = false
+        }
+        webRtcVoiceManager?.refreshMicPermission()
+        return granted
+    }
+
+    fun onMicPermissionResult(granted: Boolean) {
+        _hasMicPermission.value = granted
+        val room = activeRoom.value
+        val uid = Firebase.auth.currentUser?.uid
+        val callRepo = firestoreCallRepo
+        if (granted) {
+            _micPermissionDeniedInRoom.value = false
+            val shouldUnmuteNow = room != null && (
+                pendingUnmuteAfterPermission || (isSpeaker.value && isMicMuted.value)
+            )
+            pendingUnmuteAfterPermission = false
+            if (shouldUnmuteNow) {
+                repository.setMySpeakerState(speaker = true, muted = false, handRaised = false)
+            }
+            val effectiveEnable = isSpeaker.value && !isMicMuted.value && !isHostMuted.value
+            if (room != null && uid != null && callRepo != null) {
+                webRtcVoiceManager?.onMicPermissionChanged(
+                    granted = true,
+                    shouldEnableMic = effectiveEnable,
+                    myUid = uid,
+                    onSignalToPeer = { toUid, type, sdp, mid, idx ->
+                        viewModelScope.launch {
+                            callRepo.sendRoomSignal(room.id, toUid, type, sdp, mid, idx)
+                        }
+                    }
+                )
+                val me = currentUser.value
+                viewModelScope.launch {
+                    callRepo.upsertRoomPeer(
+                        roomId = room.id,
+                        displayName = me.name,
+                        isSpeaker = isSpeaker.value,
+                        isMuted = if (isHostMuted.value) true else isMicMuted.value,
+                        isHandRaised = isHandRaised.value,
+                        seatIndex = mySeatIndex.value,
+                        flagEmoji = me.flagEmoji,
+                        avatarFrame = me.avatarFrame,
+                        avatarColorHex = me.avatarColorHex
+                    )
+                }
+            } else {
+                webRtcVoiceManager?.refreshMicPermission()
+                webRtcVoiceManager?.setMicEnabled(effectiveEnable)
+            }
+        } else {
+            pendingUnmuteAfterPermission = false
+            _micPermissionDeniedInRoom.value = true
+            repository.setMySpeakerState(
+                speaker = isSpeaker.value,
+                muted = true,
+                handRaised = isHandRaised.value
+            )
+            webRtcVoiceManager?.onMicPermissionChanged(
+                granted = false,
+                shouldEnableMic = false,
+                myUid = uid.orEmpty(),
+                onSignalToPeer = { _, _, _, _, _ -> }
+            )
+            if (room != null && uid != null && callRepo != null) {
+                val me = currentUser.value
+                viewModelScope.launch {
+                    callRepo.upsertRoomPeer(
+                        roomId = room.id,
+                        displayName = me.name,
+                        isSpeaker = isSpeaker.value,
+                        isMuted = true,
+                        isHandRaised = isHandRaised.value,
+                        seatIndex = mySeatIndex.value,
+                        flagEmoji = me.flagEmoji,
+                        avatarFrame = me.avatarFrame,
+                        avatarColorHex = me.avatarColorHex
+                    )
+                }
+            }
+            showInAppNotification(AppStrings.t("mic_permission_needed", appLanguage.value))
+        }
+    }
+
     fun toggleMic() {
         val room = activeRoom.value
         val uid = Firebase.auth.currentUser?.uid
-        val isLiveFirestoreRoom = room != null && uid != null && firestoreCallRepo != null
-        if (isLiveFirestoreRoom && !isSpeaker.value && room!!.host.id != uid) {
-            // Listener requesting stage: raise hand and notify host
-            if (!isHandRaised.value) {
-                toggleRaiseHand()
-            }
-            showInAppNotification(AppStrings.t("raise_hand_to_speak_hint", appLanguage.value))
+        if (isHostMuted.value || webRtcVoiceManager?.isHostMutedLocked() == true) {
+            repository.setHostMutedState(true)
+            webRtcVoiceManager?.setMicEnabled(false)
+            showInAppNotification(AppStrings.t("vr_host_muted_banner", appLanguage.value))
             return
         }
+        val isLiveFirestoreRoom = room != null && uid != null && firestoreCallRepo != null
+        if (isLiveFirestoreRoom && !isSpeaker.value && room!!.host.id != uid) {
+            if (room.isStageLocked && uid !in room.invitedSpeakerIds && !room.isModeratorOrHigher(uid)) {
+                showInAppNotification(AppStrings.t("vr_stage_locked_notice", appLanguage.value))
+                return
+            }
+            claimStageSeat(-1)
+            return
+        }
+        val wantsToUnmute = !isSpeaker.value || isMicMuted.value
+        val hasMic = refreshMicPermissionStatus()
+        if (wantsToUnmute && !hasMic) {
+            pendingUnmuteAfterPermission = true
+            _micPermissionDeniedInRoom.value = true
+            webRtcVoiceManager?.setMicEnabled(false)
+            showInAppNotification(AppStrings.t("mic_permission_needed", appLanguage.value))
+            return
+        }
+        pendingUnmuteAfterPermission = false
         repository.toggleMic()
         val muted = isMicMuted.value
         val speaker = isSpeaker.value
-        webRtcVoiceManager?.setMicEnabled(speaker && !muted)
+        webRtcVoiceManager?.setMicEnabled(speaker && !muted && !isHostMuted.value && hasMic)
         if (room != null && uid != null) {
             val me = currentUser.value
             viewModelScope.launch {
@@ -2452,6 +2884,7 @@ class VibeRoomViewModel(
                     isSpeaker = speaker,
                     isMuted = muted,
                     isHandRaised = isHandRaised.value,
+                    seatIndex = mySeatIndex.value,
                     flagEmoji = me.flagEmoji,
                     avatarFrame = me.avatarFrame,
                     avatarColorHex = me.avatarColorHex
@@ -2460,16 +2893,93 @@ class VibeRoomViewModel(
         }
     }
 
+    fun claimStageSeat(requestedSeatIndex: Int = -1) {
+        val room = activeRoom.value ?: return
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        if (room.isStageLocked && !room.isModeratorOrHigher(uid) && uid !in room.invitedSpeakerIds) {
+            if (!isHandRaised.value) toggleRaiseHand()
+            showInAppNotification(AppStrings.t("vr_stage_locked_notice", appLanguage.value))
+            return
+        }
+        val voiceRepo = firestoreVoiceRoomRepo ?: return
+        val hasMic = refreshMicPermissionStatus()
+        if (!hasMic) {
+            _micPermissionDeniedInRoom.value = true
+        }
+        viewModelScope.launch {
+            val isAuthorized = room.isModeratorOrHigher(uid) || uid in room.invitedSpeakerIds
+            val result = voiceRepo.claimStageSeat(
+                roomId = room.id,
+                requestedSeatIndex = requestedSeatIndex,
+                isStageLocked = room.isStageLocked,
+                isModeratorOrInvited = isAuthorized
+            )
+            result.onSuccess { seat ->
+                val muted = isHostMuted.value || !hasMic
+                repository.setMySpeakerState(
+                    speaker = true,
+                    muted = muted,
+                    handRaised = false,
+                    seatIndex = seat
+                )
+                webRtcVoiceManager?.setMicEnabled(!muted)
+                if (!hasMic) {
+                    showInAppNotification(AppStrings.t("mic_permission_needed", appLanguage.value))
+                }
+            }.onFailure { err ->
+                showInAppNotification(
+                    err.localizedMessage ?: AppStrings.t("vr_join_stage_failed", appLanguage.value)
+                )
+            }
+        }
+    }
+
+    fun stepDownFromStage() {
+        val room = activeRoom.value ?: return
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        if (uid == room.host.id) return
+        repository.setMySpeakerState(speaker = false, muted = true, handRaised = false, seatIndex = -1)
+        webRtcVoiceManager?.setMicEnabled(false)
+        val me = currentUser.value
+        viewModelScope.launch {
+            firestoreCallRepo?.upsertRoomPeer(
+                roomId = room.id,
+                displayName = me.name,
+                isSpeaker = false,
+                isMuted = true,
+                isHandRaised = false,
+                seatIndex = -1,
+                flagEmoji = me.flagEmoji,
+                avatarFrame = me.avatarFrame,
+                avatarColorHex = me.avatarColorHex
+            )
+        }
+    }
+
     fun toggleRoomSpeakerphone() {
-        val next = !_isRoomSpeakerphone.value
-        _isRoomSpeakerphone.value = next
-        webRtcVoiceManager?.setSpeakerphoneEnabled(next)
+        val next = when (_audioRoute.value) {
+            AudioRouteMode.SPEAKER -> AudioRouteMode.EARPIECE
+            AudioRouteMode.EARPIECE -> if (_isBluetoothAvailable.value) AudioRouteMode.BLUETOOTH else AudioRouteMode.SPEAKER
+            AudioRouteMode.BLUETOOTH -> AudioRouteMode.SPEAKER
+        }
+        setAudioRoute(next)
+    }
+
+    fun setAudioRoute(route: AudioRouteMode) {
+        _audioRoute.value = route
+        _isRoomSpeakerphone.value = (route == AudioRouteMode.SPEAKER)
+        webRtcVoiceManager?.setAudioRoute(route)
     }
 
     fun toggleRaiseHand() {
-        repository.toggleRaiseHand()
         val room = activeRoom.value ?: return
-        val uid = Firebase.auth.currentUser?.uid ?: return
+        val uid = Firebase.auth.currentUser?.uid
+        if (!isHandRaised.value && room.isStageLocked && uid != null && !room.isModeratorOrHigher(uid) && uid !in room.invitedSpeakerIds) {
+            showInAppNotification(AppStrings.t("vr_stage_locked_notice", appLanguage.value))
+            return
+        }
+        repository.toggleRaiseHand()
+        if (uid == null) return
         val me = currentUser.value
         viewModelScope.launch {
             firestoreCallRepo?.upsertRoomPeer(
@@ -2478,6 +2988,7 @@ class VibeRoomViewModel(
                 isSpeaker = isSpeaker.value,
                 isMuted = isMicMuted.value,
                 isHandRaised = isHandRaised.value,
+                seatIndex = mySeatIndex.value,
                 flagEmoji = me.flagEmoji,
                 avatarFrame = me.avatarFrame,
                 avatarColorHex = me.avatarColorHex
@@ -2485,14 +2996,26 @@ class VibeRoomViewModel(
         }
     }
 
-    fun promotePeerToSpeaker(targetUid: String) {
+    fun promotePeerToSpeaker(targetUid: String, preferredSeatIndex: Int = -1) {
         val room = activeRoom.value ?: return
+        if (room.speakers.size >= room.maxAudioParticipants && room.speakers.none { it.id == targetUid }) {
+            showInAppNotification(AppStrings.t("vr_stage_capacity_reached", appLanguage.value))
+            return
+        }
+        val assignedSeat = if (preferredSeatIndex in 0..5 && !room.seatAssignments.containsKey(preferredSeatIndex)) {
+            preferredSeatIndex
+        } else {
+            (0..5).firstOrNull { !room.seatAssignments.containsKey(it) } ?: 1
+        }
+        val nextInvited = room.invitedSpeakerIds + targetUid
+        repository.updateActiveRoomMetadata(invitedSpeakerIds = nextInvited)
         viewModelScope.launch {
-            firestoreCallRepo?.moderateRoomPeer(
+            firestoreVoiceRoomRepo?.updateRoomRoles(room.id, invitedSpeakerIds = nextInvited.toList())
+            firestoreCallRepo?.setPeerStageState(
                 roomId = room.id,
                 targetUid = targetUid,
                 isSpeaker = true,
-                isMuted = false,
+                seatIndex = assignedSeat,
                 isHandRaised = false
             )
         }
@@ -2501,12 +3024,15 @@ class VibeRoomViewModel(
     fun demotePeerToListener(targetUid: String) {
         val room = activeRoom.value ?: return
         if (targetUid == room.host.id) return
+        val nextInvited = room.invitedSpeakerIds - targetUid
+        repository.updateActiveRoomMetadata(invitedSpeakerIds = nextInvited)
         viewModelScope.launch {
-            firestoreCallRepo?.moderateRoomPeer(
+            firestoreVoiceRoomRepo?.updateRoomRoles(room.id, invitedSpeakerIds = nextInvited.toList())
+            firestoreCallRepo?.setPeerStageState(
                 roomId = room.id,
                 targetUid = targetUid,
                 isSpeaker = false,
-                isMuted = true,
+                seatIndex = -1,
                 isHandRaised = false
             )
         }
@@ -2515,14 +3041,65 @@ class VibeRoomViewModel(
     fun mutePeerByHost(targetUid: String, shouldMute: Boolean) {
         val room = activeRoom.value ?: return
         viewModelScope.launch {
-            val isStillSpeaker = room.speakers.any { it.id == targetUid }
-            firestoreCallRepo?.moderateRoomPeer(
+            firestoreCallRepo?.muteOrRestrictPeer(
                 roomId = room.id,
                 targetUid = targetUid,
-                isSpeaker = isStillSpeaker,
-                isMuted = shouldMute,
-                isHandRaised = false
+                hostMuted = shouldMute
             )
+            if (!shouldMute) {
+                showInAppNotification(AppStrings.t("vr_mic_allowed_notice", appLanguage.value))
+            }
+        }
+    }
+
+    fun muteAllSpeakers() {
+        val room = activeRoom.value ?: return
+        val speakerIds = room.speakers.map { it.id }
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.muteAllSpeakers(room.id, speakerIds, room.host.id)
+            showInAppNotification(AppStrings.t("vr_all_muted_notice", appLanguage.value))
+        }
+    }
+
+    fun toggleStageLock() {
+        val room = activeRoom.value ?: return
+        val next = !room.isStageLocked
+        repository.updateActiveRoomMetadata(isStageLocked = next)
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.updateRoomConfiguration(room.id, isStageLocked = next)
+        }
+    }
+
+    fun setRoomBackgroundTheme(theme: RoomBackgroundTheme) {
+        val room = activeRoom.value ?: return
+        repository.updateActiveRoomMetadata(backgroundTheme = theme.id)
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.updateRoomConfiguration(room.id, backgroundTheme = theme.id)
+        }
+    }
+
+    fun updatePinnedNotice(notice: String?) {
+        val room = activeRoom.value ?: return
+        val clean = notice?.trim()?.take(300)
+        repository.updateActiveRoomMetadata(
+            pinnedNotice = clean,
+            clearPinnedNotice = clean.isNullOrBlank()
+        )
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.updateRoomConfiguration(
+                roomId = room.id,
+                pinnedNotice = clean,
+                clearPinnedNotice = clean.isNullOrBlank()
+            )
+        }
+    }
+
+    fun setSuccessorHost(targetUid: String?) {
+        val room = activeRoom.value ?: return
+        val clean = targetUid?.takeIf { it.isNotBlank() && it != room.host.id }
+        repository.updateActiveRoomMetadata(successorHostId = clean)
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.updateRoomConfiguration(room.id, successorHostId = clean.orEmpty())
         }
     }
 
@@ -2540,8 +3117,387 @@ class VibeRoomViewModel(
         }
     }
 
+    fun toggleRoomModerator(targetUid: String) {
+        val room = activeRoom.value ?: return
+        if (targetUid == room.host.id) return
+        val next = if (targetUid in room.moderatorIds) {
+            room.moderatorIds - targetUid
+        } else {
+            room.moderatorIds + targetUid
+        }
+        repository.updateActiveRoomMetadata(moderatorIds = next)
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.updateRoomRoles(room.id, moderatorIds = next.toList())
+        }
+    }
+
+    fun kickOrBanUser(targetUid: String, banUser: Boolean, tempDurationMs: Long? = null) {
+        val room = activeRoom.value ?: return
+        if (targetUid == room.host.id) return
+        val nextBanned = if (banUser) room.bannedIds + targetUid else room.bannedIds
+        val nextCoHosts = room.coHostIds - targetUid
+        val nextMods = room.moderatorIds - targetUid
+        val nextInvited = room.invitedSpeakerIds - targetUid
+        repository.updateActiveRoomMetadata(
+            coHostIds = nextCoHosts,
+            moderatorIds = nextMods,
+            bannedIds = nextBanned,
+            invitedSpeakerIds = nextInvited
+        )
+        viewModelScope.launch {
+            if (tempDurationMs != null) {
+                firestoreVoiceRoomRepo?.applyTemporaryOrPermanentBan(
+                    roomId = room.id,
+                    targetUid = targetUid,
+                    currentBannedIds = room.bannedIds,
+                    banDurationMs = tempDurationMs
+                )
+            } else if (banUser) {
+                firestoreVoiceRoomRepo?.applyTemporaryOrPermanentBan(
+                    roomId = room.id,
+                    targetUid = targetUid,
+                    currentBannedIds = room.bannedIds,
+                    banDurationMs = null
+                )
+                firestoreVoiceRoomRepo?.updateRoomRoles(
+                    roomId = room.id,
+                    coHostIds = nextCoHosts.toList(),
+                    moderatorIds = nextMods.toList(),
+                    bannedIds = nextBanned.toList(),
+                    invitedSpeakerIds = nextInvited.toList()
+                )
+            } else {
+                firestoreVoiceRoomRepo?.kickPeerFromRoom(room.id, targetUid)
+            }
+        }
+    }
+
     fun sendReaction(emoji: String) {
         repository.sendRoomReaction(emoji)
+        val room = activeRoom.value ?: return
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        val me = currentUser.value
+        val now = System.currentTimeMillis()
+        processedRoomEventKeys.add("reaction_${uid}_${emoji}_$now")
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.sendRoomEvent(
+                VoiceRoomLiveEvent(
+                    id = "react_$now",
+                    roomId = room.id,
+                    type = "reaction",
+                    senderId = uid,
+                    senderName = me.name,
+                    senderFlag = me.flagEmoji,
+                    senderVipLevel = me.vibeLevel,
+                    payloadId = emoji,
+                    text = emoji,
+                    timestampMs = now
+                )
+            )
+        }
+    }
+
+    fun sendRoomChatMessage(text: String) {
+        val clean = text.trim().take(500)
+        if (clean.isEmpty()) return
+        val room = activeRoom.value ?: return
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        val me = currentUser.value
+        val now = System.currentTimeMillis()
+        val event = VoiceRoomLiveEvent(
+            id = "chat_$now",
+            roomId = room.id,
+            type = "chat",
+            senderId = uid,
+            senderName = me.name,
+            senderFlag = me.flagEmoji,
+            senderVipLevel = me.vibeLevel,
+            text = clean,
+            timestampMs = now
+        )
+        processedRoomEventKeys.add("chat_${uid}__$now")
+        _roomEvents.update { (it + event).takeLast(60) }
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.sendRoomEvent(event)
+        }
+    }
+
+    fun sendVoiceGift(gift: VoiceGift, recipient: UserProfile) {
+        val room = activeRoom.value ?: return
+        val me = currentUser.value
+        val uid = Firebase.auth.currentUser?.uid
+        if (gift.xpCost > 0 && me.vibeXp < gift.xpCost) {
+            showInAppNotification(AppStrings.t("vr_insufficient_xp", appLanguage.value))
+            return
+        }
+        val now = System.currentTimeMillis()
+        val senderId = uid ?: me.id
+        if (gift.xpCost > 0) {
+            awardVibeXp(-gift.xpCost)
+        }
+        val event = VoiceRoomLiveEvent(
+            id = "gift_$now",
+            roomId = room.id,
+            type = "gift",
+            senderId = senderId,
+            senderName = me.name,
+            senderFlag = me.flagEmoji,
+            senderVipLevel = me.vibeLevel,
+            payloadId = gift.id,
+            text = "${gift.emoji} ${gift.nameEn}",
+            recipientId = recipient.id,
+            recipientName = recipient.name,
+            giftValueXp = gift.xpCost,
+            timestampMs = now
+        )
+        handleNewRoomEventSideEffects(event)
+        _roomEvents.update { (it + event).takeLast(60) }
+        recomputeLeaderboard(_roomEvents.value)
+        if (uid != null) {
+            viewModelScope.launch {
+                firestoreVoiceRoomRepo?.sendRoomEvent(event)
+            }
+        }
+    }
+
+    fun previewSoundEffect(effectId: String) {
+        soundboardEngine.playEffect(effectId, volume = _soundEffectsVolume.value, bypassCooldown = true)
+    }
+
+    fun triggerSoundEffect(effectId: String) {
+        val room = activeRoom.value ?: return
+        if (!soundboardEngine.canTriggerNow(1200L)) {
+            showInAppNotification(AppStrings.t("vr_sound_cooldown", appLanguage.value))
+            return
+        }
+        val uid = Firebase.auth.currentUser?.uid
+        val me = currentUser.value
+        val now = System.currentTimeMillis()
+        val senderId = uid ?: me.id
+        val event = VoiceRoomLiveEvent(
+            id = "snd_$now",
+            roomId = room.id,
+            type = "sound",
+            senderId = senderId,
+            senderName = me.name,
+            senderFlag = me.flagEmoji,
+            senderVipLevel = me.vibeLevel,
+            payloadId = effectId,
+            text = effectId,
+            timestampMs = now
+        )
+        handleNewRoomEventSideEffects(event)
+        if (uid != null) {
+            viewModelScope.launch {
+                firestoreVoiceRoomRepo?.sendRoomEvent(event)
+            }
+        }
+    }
+
+    fun stopSoundEffects() {
+        soundboardEngine.stopAll()
+    }
+
+    fun toggleFavoriteSound(soundId: String) {
+        val updated = if (soundId in _favoriteSoundIds.value) {
+            _favoriteSoundIds.value - soundId
+        } else {
+            _favoriteSoundIds.value + soundId
+        }
+        _favoriteSoundIds.value = updated
+        viewModelScope.launch {
+            preferencesStore?.saveVoiceRoomPreferences(favoriteSoundIds = updated)
+        }
+    }
+
+    fun setSoundEffectsVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        _soundEffectsVolume.value = clamped
+        viewModelScope.launch {
+            preferencesStore?.saveVoiceRoomPreferences(soundEffectsVolume = clamped)
+        }
+    }
+
+    fun setDefaultEntranceStyle(style: EntranceStyle) {
+        _defaultEntranceStyle.value = style
+        viewModelScope.launch {
+            preferencesStore?.saveVoiceRoomPreferences(defaultEntranceStyle = style.id)
+        }
+    }
+
+    fun setEnableGiftEffects(enabled: Boolean) {
+        _enableGiftEffects.value = enabled
+        if (!enabled) {
+            pendingGiftQueue.clear()
+            _currentGiftVisual.value = null
+        }
+        viewModelScope.launch {
+            preferencesStore?.saveVoiceRoomPreferences(enableGiftEffects = enabled)
+        }
+    }
+
+    fun setEnableEntranceAnimations(enabled: Boolean) {
+        _enableEntranceAnimations.value = enabled
+        if (!enabled) {
+            pendingEntranceQueue.clear()
+            _currentEntranceVisual.value = null
+        }
+        viewModelScope.launch {
+            preferencesStore?.saveVoiceRoomPreferences(enableEntranceAnimations = enabled)
+        }
+    }
+
+    fun setLowPowerVisualMode(enabled: Boolean) {
+        _lowPowerVisualMode.value = enabled
+        viewModelScope.launch {
+            preferencesStore?.saveVoiceRoomPreferences(lowPowerVisualMode = enabled)
+        }
+    }
+
+    fun createRoomPoll(question: String, options: List<String>) {
+        val room = activeRoom.value ?: return
+        val repo = firestoreVoiceRoomRepo ?: return
+        if (Firebase.auth.currentUser == null) return
+        viewModelScope.launch {
+            val res = repo.createRoomPoll(room.id, question, options, currentUser.value.name)
+            if (res.isFailure) {
+                showInAppNotification(res.exceptionOrNull()?.localizedMessage ?: "Could not create poll.")
+            }
+        }
+    }
+
+    fun voteRoomPoll(pollId: String, optionIndex: Int) {
+        val room = activeRoom.value ?: return
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.voteRoomPoll(room.id, pollId, optionIndex)
+        }
+    }
+
+    fun closeRoomPoll(pollId: String) {
+        val room = activeRoom.value ?: return
+        viewModelScope.launch {
+            firestoreVoiceRoomRepo?.closeRoomPoll(room.id, pollId)
+        }
+    }
+
+    fun retryRoomAudioConnection() {
+        val room = activeRoom.value ?: return
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        webRtcVoiceManager?.clearError()
+        val speakerNow = isSpeaker.value || room.host.id == uid
+        val preservedSeat = when {
+            room.host.id == uid -> 0
+            mySeatIndex.value >= 0 -> mySeatIndex.value
+            speakerNow -> 0
+            else -> -1
+        }
+        startRoomWebRtcSync(
+            roomId = room.id,
+            myUid = uid,
+            isSpeaker = speakerNow,
+            isMuted = isMicMuted.value,
+            seatIndex = preservedSeat
+        )
+    }
+
+    private fun handleNewRoomEventSideEffects(event: VoiceRoomLiveEvent) {
+        val dedupKey = "${event.type}_${event.senderId}_${event.payloadId}_${event.timestampMs}"
+        if (!processedRoomEventKeys.add(dedupKey)) return
+        when (event.type) {
+            "gift" -> {
+                val gift = VoiceGiftCatalog.findById(event.payloadId) ?: return
+                if (_enableGiftEffects.value) {
+                    enqueueGiftVisual(
+                        ActiveGiftVisual(
+                            eventId = dedupKey,
+                            gift = gift,
+                            senderName = event.senderName,
+                            senderFlag = event.senderFlag,
+                            recipientName = event.recipientName ?: "Stage"
+                        )
+                    )
+                }
+                if (_soundEffectsVolume.value > 0.05f) {
+                    soundboardEngine.playEffect(gift.soundEffectId, _soundEffectsVolume.value * 0.7f, bypassCooldown = true)
+                }
+            }
+            "entrance" -> {
+                val style = EntranceStyle.fromId(event.payloadId)
+                if (_enableEntranceAnimations.value) {
+                    enqueueEntranceVisual(
+                        ActiveEntranceVisual(
+                            eventId = dedupKey,
+                            userName = event.senderName,
+                            userFlag = event.senderFlag,
+                            userLevel = event.senderVipLevel,
+                            style = style
+                        )
+                    )
+                }
+                if (_soundEffectsVolume.value > 0.05f && style.isVip) {
+                    soundboardEngine.playEffect(style.soundEffectId, _soundEffectsVolume.value * 0.55f, bypassCooldown = true)
+                }
+            }
+            "sound" -> {
+                soundboardEngine.playEffect(event.payloadId, _soundEffectsVolume.value, bypassCooldown = true)
+            }
+            "reaction" -> {
+                if (event.senderId != Firebase.auth.currentUser?.uid && event.payloadId.isNotBlank()) {
+                    repository.sendRoomReaction(event.payloadId)
+                }
+            }
+        }
+    }
+
+    private fun enqueueGiftVisual(visual: ActiveGiftVisual) {
+        pendingGiftQueue.removeAll { it.eventId == visual.eventId }
+        pendingGiftQueue.addLast(visual)
+        val sorted = pendingGiftQueue.sortedByDescending { it.gift.priority }
+        pendingGiftQueue.clear()
+        sorted.forEach { pendingGiftQueue.addLast(it) }
+
+        if (giftQueueRunnerJob?.isActive == true) return
+        giftQueueRunnerJob = viewModelScope.launch {
+            while (pendingGiftQueue.isNotEmpty()) {
+                val next = pendingGiftQueue.removeFirst()
+                _currentGiftVisual.value = next
+                val durationMs = if (next.gift.isFullScreen) 3800L else 2400L
+                delay(durationMs)
+            }
+            _currentGiftVisual.value = null
+        }
+    }
+
+    private fun enqueueEntranceVisual(visual: ActiveEntranceVisual) {
+        pendingEntranceQueue.addLast(visual)
+        if (entranceQueueRunnerJob?.isActive == true) return
+        entranceQueueRunnerJob = viewModelScope.launch {
+            while (pendingEntranceQueue.isNotEmpty()) {
+                val next = pendingEntranceQueue.removeFirst()
+                _currentEntranceVisual.value = next
+                delay(if (next.style.isVip) 3000L else 1900L)
+            }
+            _currentEntranceVisual.value = null
+        }
+    }
+
+    private fun recomputeLeaderboard(events: List<VoiceRoomLiveEvent>) {
+        val ranked = events
+            .filter { it.type == "gift" }
+            .groupBy { it.senderId }
+            .map { (uid, list) ->
+                val sample = list.last()
+                SupporterRankEntry(
+                    userId = uid,
+                    userName = sample.senderName,
+                    flagEmoji = sample.senderFlag,
+                    totalXpGifted = list.sumOf { it.giftValueXp.coerceAtLeast(1) },
+                    giftsCount = list.size
+                )
+            }
+            .sortedWith(compareByDescending<SupporterRankEntry> { it.totalXpGifted }.thenByDescending { it.giftsCount })
+            .take(10)
+        _supporterLeaderboard.value = ranked
     }
 
     fun createRoom(
@@ -2549,71 +3505,262 @@ class VibeRoomViewModel(
         description: String,
         category: RoomCategory,
         tags: List<String>,
-        isPrivate: Boolean = false
+        isPrivate: Boolean = false,
+        backgroundTheme: String = RoomBackgroundTheme.AURORA.id,
+        isStageLocked: Boolean = false
     ) {
-        val host = currentUser.value
-        repository.createVoiceRoom(title, description, category, tags, isPrivate)
-        _showCreateRoomDialog.value = false
-        _showActiveRoomModal.value = true
-        _roomAssistantOutput.value = null
+        if (_isCreatingRoom.value) return
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return
 
+        val host = currentUser.value
         val repo = firestoreVoiceRoomRepo
         val uid = Firebase.auth.currentUser?.uid
-        if (repo != null && uid != null) {
-            viewModelScope.launch {
-                try {
-                    val firestoreCreated = repo.createVoiceRoom(
-                        title = title,
-                        description = description,
-                        category = category,
-                        hostUser = host,
-                        tags = tags,
-                        isPrivate = isPrivate
-                    )
-                    repository.joinVoiceRoom(firestoreCreated)
-                    repository.setMySpeakerState(speaker = true, muted = false, handRaised = false)
-                    awardVibeXp(15, "stage_host")
-                    startRoomWebRtcSync(firestoreCreated.id, uid, isSpeaker = true, isMuted = false)
-                } catch (e: Exception) {
-                    Log.w("VibeRoomViewModel", "Failed to persist voice room to Firestore: ${e.message}")
-                }
+
+        if (repo == null || uid == null) {
+            val hasMic = refreshMicPermissionStatus()
+            pendingUnmuteAfterPermission = !hasMic
+            _micPermissionDeniedInRoom.value = false
+            repository.createVoiceRoom(
+                title = cleanTitle,
+                description = description.trim(),
+                category = category,
+                tags = tags,
+                isPrivate = isPrivate,
+                backgroundTheme = backgroundTheme,
+                isStageLocked = isStageLocked,
+                startMuted = !hasMic
+            )
+            _showCreateRoomDialog.value = false
+            _showActiveRoomModal.value = true
+            _roomAssistantOutput.value = null
+            return
+        }
+
+        _isCreatingRoom.value = true
+        viewModelScope.launch {
+            try {
+                // Close any previous live rooms hosted by this user so duplicate phantom rooms never linger.
+                repo.expireStaleHostRooms(uid, expireAllLive = true)
+
+                val firestoreCreated = repo.createVoiceRoom(
+                    title = cleanTitle,
+                    description = description.trim(),
+                    category = category,
+                    hostUser = host,
+                    tags = tags,
+                    isPrivate = isPrivate,
+                    backgroundTheme = backgroundTheme,
+                    isStageLocked = isStageLocked
+                )
+
+                webRtcVoiceManager?.clearError()
+                webRtcVoiceManager?.setHostMuted(false)
+                isInitiatedLocalLeave = false
+                lastNotifiedHostMuted = false
+                _roomEvents.value = emptyList()
+                _roomPolls.value = emptyList()
+                _supporterLeaderboard.value = emptyList()
+                processedRoomEventKeys.clear()
+                roomJoinedAtMs = System.currentTimeMillis()
+                _micPermissionDeniedInRoom.value = false
+
+                val currentMicGranted = refreshMicPermissionStatus()
+                pendingUnmuteAfterPermission = !currentMicGranted
+                repository.joinVoiceRoom(firestoreCreated)
+                repository.setMySpeakerState(
+                    speaker = true,
+                    muted = !currentMicGranted,
+                    handRaised = false,
+                    seatIndex = 0
+                )
+                _showCreateRoomDialog.value = false
+                _showActiveRoomModal.value = true
+                _roomAssistantOutput.value = null
+                awardVibeXp(15, "stage_host")
+                startRoomWebRtcSync(
+                    roomId = firestoreCreated.id,
+                    myUid = uid,
+                    isSpeaker = true,
+                    isMuted = !currentMicGranted,
+                    seatIndex = 0
+                )
+            } catch (e: Exception) {
+                Log.w("VibeRoomViewModel", "Failed to create voice room in Firestore: ${e.message}")
+                showInAppNotification(e.localizedMessage ?: "Could not create voice room.")
+            } finally {
+                _isCreatingRoom.value = false
             }
         }
     }
 
-    private fun startRoomWebRtcSync(roomId: String, myUid: String, isSpeaker: Boolean, isMuted: Boolean) {
+    private fun startRoomWebRtcSync(
+        roomId: String,
+        myUid: String,
+        isSpeaker: Boolean,
+        isMuted: Boolean,
+        seatIndex: Int = if (isSpeaker) 0 else -1
+    ) {
         val callRepo = firestoreCallRepo ?: return
+        val voiceRepo = firestoreVoiceRoomRepo
         val rtc = webRtcVoiceManager ?: return
-        _isRoomSpeakerphone.value = true
+        val preferredRoute = rtc.preferredJoinRoute()
+        _audioRoute.value = preferredRoute
+        _isRoomSpeakerphone.value = (preferredRoute == AudioRouteMode.SPEAKER)
         val me = currentUser.value
+        val hasMicNow = refreshMicPermissionStatus()
+        val initialMuted = isMuted || !hasMicNow
 
         roomPeersJob?.cancel()
         roomSignalsJob?.cancel()
+        activeRoomDocJob?.cancel()
+        roomHeartbeatJob?.cancel()
+        roomEventsJob?.cancel()
+        roomPollsJob?.cancel()
 
         viewModelScope.launch {
             callRepo.upsertRoomPeer(
                 roomId = roomId,
                 displayName = me.name,
                 isSpeaker = isSpeaker,
-                isMuted = isMuted,
+                isMuted = initialMuted,
                 isHandRaised = false,
+                seatIndex = seatIndex,
                 flagEmoji = me.flagEmoji,
                 avatarFrame = me.avatarFrame,
                 avatarColorHex = me.avatarColorHex
             )
         }
 
+        roomHeartbeatJob = viewModelScope.launch {
+            while (true) {
+                delay(20_000L)
+                callRepo.heartbeatRoomPeer(roomId)
+                val current = activeRoom.value
+                if (voiceRepo != null && current != null && current.id == roomId && current.host.id == myUid) {
+                    val activeCount = (current.speakers.size + current.listeners.size).coerceAtLeast(1)
+                    voiceRepo.sendHostHeartbeat(
+                        roomId = roomId,
+                        activeListenersCount = activeCount,
+                        activeSpeakersCount = current.speakers.size.coerceIn(1, 6)
+                    )
+                }
+            }
+        }
+
+        if (voiceRepo != null) {
+            activeRoomDocJob = viewModelScope.launch {
+                voiceRepo.observeSingleVoiceRoom(roomId).collect { remoteRoom ->
+                    val currentTitle = activeRoom.value?.title ?: remoteRoom?.title.orEmpty()
+                    if (remoteRoom == null || !remoteRoom.isLive || !remoteRoom.lifecycleState.isDiscoverable()) {
+                        val shouldShowPoliteDialog = !isInitiatedLocalLeave && activeRoom.value?.id == roomId
+                        repository.leaveVoiceRoom()
+                        _showActiveRoomModal.value = false
+                        stopRoomWebRtcSync(roomId)
+                        if (shouldShowPoliteDialog) {
+                            _roomEndedNoticeTitle.value = currentTitle
+                        }
+                    } else {
+                        repository.syncRemoteActiveRoom(remoteRoom)
+                        val nowMs = System.currentTimeMillis()
+                        if (myUid in remoteRoom.bannedIds) {
+                            showInAppNotification(AppStrings.t("vr_banned_notice", appLanguage.value))
+                            leaveVoiceRoom()
+                        } else if (remoteRoom.isUserBanned(myUid, nowMs)) {
+                            showInAppNotification(AppStrings.t("vr_temp_banned_notice", appLanguage.value))
+                            leaveVoiceRoom()
+                        }
+                    }
+                }
+            }
+
+            roomEventsJob = viewModelScope.launch {
+                voiceRepo.observeRoomEvents(roomId).collect { events ->
+                    _roomEvents.value = events
+                    recomputeLeaderboard(events)
+                    events.forEach { ev ->
+                        if (ev.timestampMs >= roomJoinedAtMs - 2500L) {
+                            handleNewRoomEventSideEffects(ev)
+                        }
+                    }
+                }
+            }
+
+            roomPollsJob = viewModelScope.launch {
+                voiceRepo.observeRoomPolls(roomId).collect { polls ->
+                    _roomPolls.value = polls
+                }
+            }
+        }
+
         roomPeersJob = viewModelScope.launch {
             callRepo.observeRoomPeers(roomId)
                 .combine(rtc.connectedPeerIds) { peers, connectedIds -> peers to connectedIds }
                 .collect { (peers, connectedIds) ->
+                    val micGranted = refreshMicPermissionStatus()
+                    val nowMs = System.currentTimeMillis()
+                    val myPeer = peers.firstOrNull { (it.userId.ifBlank { it.id }) == myUid }
+                    val hostMutedNow = myPeer?.hostMuted == true
+                    rtc.setHostMuted(hostMutedNow)
+                    repository.setHostMutedState(hostMutedNow)
+                    if (hostMutedNow && !lastNotifiedHostMuted) {
+                        showInAppNotification(AppStrings.t("vr_host_muted_banner", appLanguage.value))
+                    } else if (!hostMutedNow && lastNotifiedHostMuted) {
+                        showInAppNotification(AppStrings.t("vr_mic_allowed_notice", appLanguage.value))
+                    }
+                    lastNotifiedHostMuted = hostMutedNow
+
                     repository.syncActiveRoomPeers(peers, myUid, connectedIds)
-                    rtc.setMicEnabled(isSpeaker && !isMicMuted.value || (this@VibeRoomViewModel.isSpeaker.value && !isMicMuted.value))
-                    val remoteIds = peers.map { it.userId.ifBlank { it.id } }.filter { it != myUid }
+
+                    // Never allow remote peer promotion/doc state to unmute this device without RECORD_AUDIO or while hostMuted.
+                    val speakerNow = this@VibeRoomViewModel.isSpeaker.value
+                    var mutedNow = isMicMuted.value
+                    if (hostMutedNow && !mutedNow) {
+                        mutedNow = true
+                        repository.setMySpeakerState(
+                            speaker = speakerNow,
+                            muted = true,
+                            handRaised = false,
+                            seatIndex = mySeatIndex.value
+                        )
+                    } else if (speakerNow && !mutedNow && !micGranted) {
+                        mutedNow = true
+                        pendingUnmuteAfterPermission = true
+                        _micPermissionDeniedInRoom.value = true
+                        repository.setMySpeakerState(
+                            speaker = true,
+                            muted = true,
+                            handRaised = isHandRaised.value,
+                            seatIndex = mySeatIndex.value
+                        )
+                        viewModelScope.launch {
+                            callRepo.upsertRoomPeer(
+                                roomId = roomId,
+                                displayName = me.name,
+                                isSpeaker = true,
+                                isMuted = true,
+                                isHandRaised = isHandRaised.value,
+                                seatIndex = mySeatIndex.value,
+                                flagEmoji = me.flagEmoji,
+                                avatarFrame = me.avatarFrame,
+                                avatarColorHex = me.avatarColorHex
+                            )
+                        }
+                    }
+
+                    val canCapture = speakerNow && !mutedNow && !hostMutedNow && micGranted
+                    rtc.setMicEnabled(canCapture)
+                    val remoteIds = peers
+                        .filter { peer ->
+                            val pid = peer.userId.ifBlank { peer.id }
+                            val alive = peer.lastHeartbeatMs == 0L || (nowMs - peer.lastHeartbeatMs) <= 75_000L
+                            pid.isNotBlank() && pid != myUid && pid != "guest_user" && alive
+                        }
+                        .map { it.userId.ifBlank { it.id } }
                     rtc.syncRoomPeers(
                         myUid = myUid,
                         remotePeerIds = remoteIds,
-                        micEnabled = this@VibeRoomViewModel.isSpeaker.value && !isMicMuted.value,
+                        micEnabled = canCapture,
                         onSignalToPeer = { toUid, type, sdp, mid, idx ->
                             viewModelScope.launch {
                                 callRepo.sendRoomSignal(roomId, toUid, type, sdp, mid, idx)
@@ -2624,9 +3771,11 @@ class VibeRoomViewModel(
         }
 
         roomSignalsJob = viewModelScope.launch {
+            callRepo.clearRoomSignalsForUser(roomId, myUid)
             callRepo.observeRoomSignalsForUser(roomId, myUid).collect { signals ->
                 signals.forEach { sig ->
                     rtc.handleRoomSignal(
+                        myUid = myUid,
                         signal = sig,
                         onAnswerToPeer = { toUid, sdp ->
                             viewModelScope.launch {
@@ -2648,9 +3797,26 @@ class VibeRoomViewModel(
     private fun stopRoomWebRtcSync(roomId: String?) {
         roomPeersJob?.cancel()
         roomSignalsJob?.cancel()
+        activeRoomDocJob?.cancel()
+        roomHeartbeatJob?.cancel()
+        roomEventsJob?.cancel()
+        roomPollsJob?.cancel()
+        giftQueueRunnerJob?.cancel()
+        entranceQueueRunnerJob?.cancel()
         webRtcVoiceManager?.leaveRoomAudio()
+        soundboardEngine.stopAll()
+        pendingGiftQueue.clear()
+        pendingEntranceQueue.clear()
+        _currentGiftVisual.value = null
+        _currentEntranceVisual.value = null
+        _micPermissionDeniedInRoom.value = false
+        pendingUnmuteAfterPermission = false
+        val uid = Firebase.auth.currentUser?.uid
         if (!roomId.isNullOrBlank()) {
             viewModelScope.launch {
+                if (uid != null) {
+                    firestoreCallRepo?.clearRoomSignalsForUser(roomId, uid)
+                }
                 firestoreCallRepo?.removeRoomPeer(roomId)
             }
         }
@@ -2768,6 +3934,10 @@ class VibeRoomViewModel(
                         avatarUrl = curr.avatarUrl,
                         avatarData = curr.avatarData,
                         avatarFrame = curr.avatarFrame,
+                        vibeXp = curr.vibeXp,
+                        vibeLevel = curr.vibeLevel,
+                        streakDays = curr.streakDays,
+                        unlockedBadges = curr.unlockedBadges,
                         interests = interests,
                         languages = languages,
                         nativeLanguages = nativeLanguages,
@@ -2849,19 +4019,46 @@ class VibeRoomViewModel(
 
     // --- AI Language Coach, Translator, Exercises & Flashcards (via Firebase.ai) ---
 
+    fun warmupAiCoach() {
+        viewModelScope.launch(Dispatchers.IO) {
+            aiLanguageService.warmup()
+        }
+    }
+
     fun clearAiCoach() {
         aiCoachJob?.cancel()
         aiCoachJob = null
+        activeCoachRequestSignature = null
         _aiCoachTurns.value = emptyList()
+        _aiCoachState.value = AiTaskState.Idle
+    }
+
+    fun cancelAiCoach() {
+        aiCoachJob?.cancel()
+        aiCoachJob = null
+        activeCoachRequestSignature = null
+        _aiCoachTurns.update { current ->
+            current
+                .filterNot { it.isStreaming && it.text.isBlank() }
+                .map { if (it.isStreaming) it.copy(isStreaming = false) else it }
+        }
         _aiCoachState.value = AiTaskState.Idle
     }
 
     fun sendAiCoachPrompt(prompt: String, targetLanguage: String, mode: String) {
         val clean = prompt.trim()
         if (clean.isBlank()) return
+        val signature = "${mode.lowercase()}|${targetLanguage.lowercase()}|$clean"
+        if (aiCoachJob?.isActive == true && activeCoachRequestSignature == signature) {
+            return
+        }
         aiCoachJob?.cancel()
-        val userTurn = AiCoachTurn(id = "u_${System.currentTimeMillis()}", isUser = true, text = clean)
-        val assistantTurnId = "a_${System.currentTimeMillis()}"
+        activeCoachRequestSignature = signature
+
+        val priorHistory = _aiCoachTurns.value.filter { !it.isStreaming && it.text.isNotBlank() }
+        val nowMs = System.currentTimeMillis()
+        val userTurn = AiCoachTurn(id = "u_${nowMs}_${UUID.randomUUID().toString().take(4)}", isUser = true, text = clean)
+        val assistantTurnId = "a_${nowMs}_${UUID.randomUUID().toString().take(4)}"
         _aiCoachTurns.update { current ->
             current.map { if (it.isStreaming) it.copy(isStreaming = false) else it } + userTurn
         }
@@ -2870,38 +4067,72 @@ class VibeRoomViewModel(
         aiCoachJob = viewModelScope.launch {
             try {
                 var latestText = ""
+                var lastUiFlushMs = 0L
+                val uiFlushIntervalMs = 48L
+
                 aiLanguageService.streamCoachResponse(
                     userPrompt = clean,
                     targetLanguage = targetLanguage,
                     proficiencyLevel = currentUser.value.proficiencyLevel.ifBlank { "Intermediate" },
                     mode = mode,
-                    learnerUiLanguage = appLanguage.value.nativeName
+                    learnerUiLanguage = appLanguage.value.nativeName,
+                    history = priorHistory
                 ).collect { accumulated ->
                     latestText = accumulated
-                    _aiCoachState.value = AiTaskState.Streaming(accumulated)
-                    _aiCoachTurns.update { current ->
-                        val withoutActive = current.filterNot { it.id == assistantTurnId }
-                        withoutActive + AiCoachTurn(
-                            id = assistantTurnId,
-                            isUser = false,
-                            text = accumulated,
-                            isStreaming = true
-                        )
+                    val now = System.currentTimeMillis()
+                    if (lastUiFlushMs == 0L || now - lastUiFlushMs >= uiFlushIntervalMs) {
+                        lastUiFlushMs = now
+                        _aiCoachState.value = AiTaskState.Streaming(accumulated)
+                        _aiCoachTurns.update { current ->
+                            val existingIndex = current.indexOfFirst { it.id == assistantTurnId }
+                            if (existingIndex >= 0) {
+                                current.toMutableList().apply {
+                                    set(existingIndex, get(existingIndex).copy(text = accumulated, isStreaming = true))
+                                }
+                            } else {
+                                current + AiCoachTurn(
+                                    id = assistantTurnId,
+                                    isUser = false,
+                                    text = accumulated,
+                                    isStreaming = true
+                                )
+                            }
+                        }
                     }
                 }
-                _aiCoachTurns.update { current ->
-                    current.map { if (it.id == assistantTurnId) it.copy(text = latestText, isStreaming = false) else it }
+                if (latestText.isNotEmpty()) {
+                    _aiCoachTurns.update { current ->
+                        val existingIndex = current.indexOfFirst { it.id == assistantTurnId }
+                        if (existingIndex >= 0) {
+                            current.toMutableList().apply {
+                                set(existingIndex, get(existingIndex).copy(text = latestText, isStreaming = false))
+                            }
+                        } else {
+                            current + AiCoachTurn(
+                                id = assistantTurnId,
+                                isUser = false,
+                                text = latestText,
+                                isStreaming = false
+                            )
+                        }
+                    }
                 }
                 _aiCoachState.value = AiTaskState.Success(Unit)
                 preferencesStore?.recordLearningActivity()
             } catch (e: TimeoutCancellationException) {
                 Log.e("VibeRoomViewModel", "AI Coach timed out", e)
+                _aiCoachTurns.update { current -> current.filterNot { it.id == assistantTurnId && it.text.isBlank() }.map { it.copy(isStreaming = false) } }
                 _aiCoachState.value = AiTaskState.Error("Request timed out after 35 seconds. Please try again.")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e("VibeRoomViewModel", "AI Coach failed", e)
+                _aiCoachTurns.update { current -> current.filterNot { it.id == assistantTurnId && it.text.isBlank() }.map { it.copy(isStreaming = false) } }
                 _aiCoachState.value = AiTaskState.Error(e.localizedMessage ?: "AI Coach failed to respond.")
+            } finally {
+                if (activeCoachRequestSignature == signature) {
+                    activeCoachRequestSignature = null
+                }
             }
         }
     }
@@ -2921,7 +4152,7 @@ class VibeRoomViewModel(
                     it.mediaType == "text" &&
                     it.text.isNotBlank()
             }
-            .takeLast(8)
+            .takeLast(4)
         candidates.forEach { msg ->
             val key = "msg_${msg.id}"
             val existing = _inlineTranslations.value[key]
@@ -2964,15 +4195,37 @@ class VibeRoomViewModel(
                 return
             }
             if (inlineItemKey in _inlineTranslatingKeys.value) return
+        }
+
+        // Fast synchronous cache lookup to eliminate unnecessary Loading spinner flashes on repeated queries.
+        val cached = aiLanguageService.getCachedTranslation(clean, resolvedTarget, sourceLanguageHint)
+        if (cached != null) {
+            if (inlineItemKey != null) {
+                _inlineTranslations.update { it + (inlineItemKey to cached) }
+                _inlineTranslationErrors.update { it - inlineItemKey }
+            } else {
+                _translationState.value = AiTaskState.Success(cached)
+            }
+            return
+        }
+
+        if (inlineItemKey != null) {
             _inlineTranslationErrors.update { it - inlineItemKey }
             _inlineTranslatingKeys.update { it + inlineItemKey }
         } else {
+            manualTranslationJob?.cancel()
             _translationState.value = AiTaskState.Loading
         }
 
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             try {
-                val res = aiLanguageService.translate(clean, resolvedTarget, sourceLanguageHint)
+                val res = if (inlineItemKey != null) {
+                    autoTranslateSemaphore.withPermit {
+                        aiLanguageService.translate(clean, resolvedTarget, sourceLanguageHint)
+                    }
+                } else {
+                    aiLanguageService.translate(clean, resolvedTarget, sourceLanguageHint)
+                }
                 res.onSuccess { translated ->
                     _translationHistory.update { (listOf(translated) + it).take(30) }
                     if (inlineItemKey != null) {
@@ -2997,11 +4250,15 @@ class VibeRoomViewModel(
                 }
             }
         }
+        if (inlineItemKey == null) {
+            manualTranslationJob = job
+        }
     }
 
     fun generatePracticeExercise(targetLanguage: String, topic: String = "Daily Conversation") {
+        exerciseJob?.cancel()
         _exerciseState.value = AiTaskState.Loading
-        viewModelScope.launch {
+        exerciseJob = viewModelScope.launch {
             val res = aiLanguageService.generatePracticeExercise(
                 targetLanguage = targetLanguage,
                 proficiencyLevel = currentUser.value.proficiencyLevel.ifBlank { "Intermediate" },
@@ -3064,9 +4321,22 @@ class VibeRoomViewModel(
         val authUser = Firebase.auth.currentUser ?: return
         viewModelScope.launch {
             try {
-                firestoreUserRepo?.deleteOwnAccountData()
+                if (repository.activeRoom.value != null) {
+                    leaveVoiceRoom(forceEndRoom = true)
+                }
+                val repo = firestoreUserRepo ?: FirestoreUserRepository(context)
+                val deleteDataResult = repo.deleteOwnAccountData()
+                if (deleteDataResult.isFailure) {
+                    val err = deleteDataResult.exceptionOrNull()
+                    if (err is CancellationException) throw err
+                    Log.e("VibeRoomViewModel", "Firestore account data deletion failed: ${err?.message}", err)
+                    showInAppNotification(err?.localizedMessage ?: "Unable to delete account data.")
+                    return@launch
+                }
                 authUser.delete().await()
                 stopFirestoreListeners()
+                AuthService(context).clearCredentialAndPendingState()
+                preferencesStore?.clearUserProgress()
                 _isCurrentUserCountryLocked.value = false
                 _activeChatConversationId.value = null
                 _selectedUserProfile.value = null

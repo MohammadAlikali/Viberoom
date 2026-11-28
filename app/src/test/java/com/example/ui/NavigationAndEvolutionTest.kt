@@ -147,11 +147,9 @@ class NavigationAndEvolutionTest {
             )
         }
         composeTestRule.waitForIdle()
-        val node = composeTestRule.onNodeWithTag("room_private_badge_room_priv_1").fetchSemanticsNode()
-        println("PRIVATE_BADGE_DEBUG: bounds=${node.boundsInRoot}, size=${node.size}, placed=${node.layoutInfo.isPlaced}, rootBounds=${composeTestRule.onNodeWithTag("room_card_room_priv_1").fetchSemanticsNode().boundsInRoot}")
 
-        composeTestRule.onNodeWithTag("room_private_badge_room_priv_1").assertExists()
-        composeTestRule.onNodeWithTag("room_private_badge_room_priv_1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("room_private_badge_room_priv_1", useUnmergedTree = true)
+            .assertIsDisplayed()
         composeTestRule.onNodeWithTag("join_room_button_room_priv_1").assertIsDisplayed()
     }
 

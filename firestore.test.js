@@ -1161,17 +1161,25 @@ test("Voice Room Moderation & Language Ranks: Host can promote/mute peer and own
     })
   );
 
-  // Host (Alice) can promote Bob to speaker
+  // Host (Alice) can promote Bob to speaker seat (while respecting zero force-unmute)
   await assertSucceeds(
     aliceDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
       isSpeaker: true,
-      isMuted: false,
+      seatIndex: 1,
       isHandRaised: false,
       updatedAt: new Date(),
     })
   );
 
-  // Non-host (Charlie) cannot promote Bob
+  // Host (Alice) CANNOT force-unmute Bob (set isMuted: false)
+  await assertFails(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
+      isMuted: false,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Non-host (Charlie) cannot promote/modify Bob
   await assertFails(
     charlieDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
       isSpeaker: false,
@@ -1324,3 +1332,520 @@ test("Evolution: Gamification XP, Disappearing Messages, Private/Co-Host Voice R
   );
 });
 
+test("Voice Room Rebuild: Room configuration, moderators, bans, live events, and polls", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext("charlie_789").firestore();
+  const roomId = "room_futuristic_1";
+
+  // 1. Host creates room with lifecycle, backgroundTheme, moderatorIds, and capacity <= 6
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).set({
+      title: "Cyberpunk Lounge",
+      category: "MUSIC_JAM",
+      hostId: ALICE_UID,
+      hostName: "Alice",
+      isLive: true,
+      listenersCount: 1,
+      lifecycleState: "LIVE",
+      backgroundTheme: "cyberpunk",
+      isStageLocked: true,
+      moderatorIds: [BOB_UID],
+      bannedIds: [],
+      invitedSpeakerIds: [],
+      pinnedNotice: "Respect the mic queue",
+      maxAudioParticipants: 6,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+  );
+
+  // Invalid capacity > 6 fails
+  await assertFails(
+    aliceDb.collection("voice_rooms").doc(roomId).update({
+      maxAudioParticipants: 20,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Moderator Bob can update theme & ban Charlie
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).update({
+      backgroundTheme: "galaxy",
+      bannedIds: ["charlie_789"],
+      updatedAt: new Date(),
+    })
+  );
+
+  // Banned user Charlie cannot join peers, post events, or create polls
+  await assertFails(
+    charlieDb.collection("voice_rooms").doc(roomId).collection("peers").doc("charlie_789").set({
+      userId: "charlie_789",
+      displayName: "Charlie",
+      isSpeaker: false,
+      isMuted: true,
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    charlieDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_ban").set({
+      roomId,
+      type: "chat",
+      senderId: "charlie_789",
+      senderName: "Charlie",
+      text: "Bypassing ban",
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+
+  // 2. Non-banned participant Bob can send gift event; spoofing sender or >1000 XP fails
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_gift_1").set({
+      roomId,
+      type: "gift",
+      senderId: BOB_UID,
+      senderName: "Bob",
+      senderFlag: "🇩🇪",
+      senderVipLevel: 3,
+      payloadId: "luxury_car",
+      text: "Sent Hyperion GT Car to Alice",
+      recipientId: ALICE_UID,
+      recipientName: "Alice",
+      giftValueXp: 40,
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_spoof").set({
+      roomId,
+      type: "gift",
+      senderId: ALICE_UID,
+      senderName: "Alice",
+      payloadId: "dragon",
+      giftValueXp: 100,
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_huge_xp").set({
+      roomId,
+      type: "gift",
+      senderId: BOB_UID,
+      senderName: "Bob",
+      payloadId: "dragon",
+      giftValueXp: 99999,
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+
+  // 3. Room Polls: Host creates poll, Bob votes, Moderator closes poll
+  const pollId = "poll_room_1";
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("polls").doc(pollId).set({
+      roomId,
+      question: "Next acoustic set theme?",
+      options: ["Lo-Fi", "Synthwave", "Acoustic"],
+      votes: {},
+      createdById: ALICE_UID,
+      createdByName: "Alice",
+      isClosed: false,
+      createdAtMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("polls").doc(pollId).update({
+      votes: { [BOB_UID]: 1 },
+    })
+  );
+
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("polls").doc(pollId).update({
+      isClosed: true,
+    })
+  );
+
+  // Banned user Charlie cannot vote in poll
+  await assertFails(
+    charlieDb.collection("voice_rooms").doc(roomId).collection("polls").doc(pollId).update({
+      votes: { [BOB_UID]: 1, charlie_789: 0 },
+    })
+  );
+});
+
+test("Voice Room Audio Signaling: Two users exchange offer, answer, ICE and clear stale signals", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const roomId = "room_rtc_sig_1";
+
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).set({
+      title: "Dual User Audio Room",
+      description: "Testing offer/answer/ice exchange",
+      category: "GENERAL",
+      hostId: ALICE_UID,
+      hostName: "Alice",
+      hostCountry: "US",
+      hostFlagEmoji: "🇺🇸",
+      speakersCount: 1,
+      listenersCount: 1,
+      isLive: true,
+      lifecycleState: "LIVE",
+      maxAudioParticipants: 6,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+  );
+
+  // Alice creates offer -> Bob, Bob creates answer -> Alice, Alice sends ICE -> Bob
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("signals").doc("offer_1").set({
+      fromUserId: ALICE_UID,
+      toUserId: BOB_UID,
+      type: "offer",
+      sdp: "v=0\r\no=- 111 2 IN IP4 127.0.0.1\r\n",
+      createdAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("signals").doc("answer_1").set({
+      fromUserId: BOB_UID,
+      toUserId: ALICE_UID,
+      type: "answer",
+      sdp: "v=0\r\no=- 222 2 IN IP4 127.0.0.1\r\n",
+      createdAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("signals").doc("ice_1").set({
+      fromUserId: ALICE_UID,
+      toUserId: BOB_UID,
+      type: "ice",
+      sdp: "candidate:1 1 UDP 2122252543 192.0.2.1 54321 typ host",
+      sdpMid: "0",
+      sdpMLineIndex: 0,
+      createdAt: new Date(),
+    })
+  );
+
+  // Bob can query and clear signals addressed to him and sent by him on leave/rejoin
+  const bobIncoming = await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("signals").where("toUserId", "==", BOB_UID).get()
+  );
+  if (bobIncoming.size !== 2) {
+    throw new Error(`Expected 2 signals for Bob, got ${bobIncoming.size}`);
+  }
+  const bobOutgoing = await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("signals").where("fromUserId", "==", BOB_UID).get()
+  );
+  if (bobOutgoing.size !== 1) {
+    throw new Error(`Expected 1 outgoing signal from Bob, got ${bobOutgoing.size}`);
+  }
+
+  for (const docSnap of [...bobIncoming.docs, ...bobOutgoing.docs]) {
+    await assertSucceeds(docSnap.ref.delete());
+  }
+});
+
+test("Voice Room Integrity & Mic Control: hostMuted lock, stage lock claim, and temporary ban enforcement", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext("charlie_789").firestore();
+  const roomId = "room_integrity_1";
+
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).set({
+      title: "Integrity & Mic Lock Room",
+      category: "GENERAL",
+      hostId: ALICE_UID,
+      hostName: "Alice",
+      isLive: true,
+      listenersCount: 1,
+      speakersCount: 1,
+      lifecycleState: "LIVE",
+      isStageLocked: true,
+      bannedIds: [],
+      invitedSpeakerIds: [],
+      temporaryBans: {},
+      maxAudioParticipants: 6,
+      hostLastHeartbeatMs: Date.now(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+  );
+
+  // Locked stage: Bob cannot self-join directly as speaker without invitation
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).set({
+      userId: BOB_UID,
+      displayName: "Bob",
+      isSpeaker: true,
+      isMuted: false,
+      seatIndex: 1,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Bob CAN join as muted listener
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).set({
+      userId: BOB_UID,
+      displayName: "Bob",
+      isSpeaker: false,
+      isMuted: true,
+      hostMuted: false,
+      seatIndex: -1,
+      lastHeartbeatMs: Date.now(),
+      updatedAt: new Date(),
+    })
+  );
+
+  // Alice invites and promotes Bob to seat 1 (hostMuted still false, isMuted stays true)
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).update({
+      invitedSpeakerIds: [BOB_UID],
+      updatedAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
+      isSpeaker: true,
+      seatIndex: 1,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Bob can unmute himself when hostMuted == false
+  await assertSucceeds(
+    bobDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
+      isMuted: false,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Alice applies hostMuted lock on Bob
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
+      isMuted: true,
+      hostMuted: true,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Bob CANNOT unmute himself or clear hostMuted while locked
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
+      isMuted: false,
+      hostMuted: true,
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).collection("peers").doc(BOB_UID).update({
+      isMuted: false,
+      hostMuted: false,
+      updatedAt: new Date(),
+    })
+  );
+
+  // Alice temporarily bans Charlie for 15 minutes
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).update({
+      temporaryBans: { charlie_789: Date.now() + 900000 },
+      updatedAt: new Date(),
+    })
+  );
+
+  // Temporarily banned Charlie cannot create peer doc or post chat event
+  await assertFails(
+    charlieDb.collection("voice_rooms").doc(roomId).collection("peers").doc("charlie_789").set({
+      userId: "charlie_789",
+      displayName: "Charlie",
+      isSpeaker: false,
+      isMuted: true,
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    charlieDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_tempban").set({
+      roomId,
+      type: "chat",
+      senderId: "charlie_789",
+      senderName: "Charlie",
+      text: "Trying during timeout",
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+});
+
+test("Security Audit: Moderator/co-host isolation, ended room lockdown, banned signals, system events, and closed polls", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext("charlie_789").firestore();
+  const daveDb = testEnv.authenticatedContext("dave_000").firestore();
+  const roomId = "room_audit_sec_1";
+
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).set({
+      title: "Security Audit Stage",
+      category: "GENERAL",
+      hostId: ALICE_UID,
+      hostName: "Alice",
+      isLive: true,
+      listenersCount: 2,
+      lifecycleState: "LIVE",
+      coHostIds: [BOB_UID],
+      moderatorIds: ["dave_000"],
+      bannedIds: ["charlie_789"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+  );
+
+  // 1. Co-host Bob and Moderator Dave CANNOT end host's room, spoof title, alter roles, or ban the host
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).update({
+      isLive: false,
+      lifecycleState: "ENDED",
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    daveDb.collection("voice_rooms").doc(roomId).update({
+      moderatorIds: [],
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    bobDb.collection("voice_rooms").doc(roomId).update({
+      bannedIds: ["charlie_789", ALICE_UID],
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    daveDb.collection("voice_rooms").doc(roomId).update({
+      title: "Hijacked Room Title",
+      updatedAt: new Date(),
+    })
+  );
+
+  // 2. Listener cannot tamper with listenersCount by +50 (must step by +/- 1)
+  await assertFails(
+    daveDb.collection("voice_rooms").doc(roomId).update({
+      listenersCount: 52,
+      updatedAt: new Date(),
+    })
+  );
+
+  // 3. Banned user Charlie cannot send WebRTC signals into the room
+  await assertFails(
+    charlieDb.collection("voice_rooms").doc(roomId).collection("signals").doc("sig_ban").set({
+      fromUserId: "charlie_789",
+      toUserId: ALICE_UID,
+      type: "offer",
+      sdp: "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n",
+      createdAt: new Date(),
+    })
+  );
+
+  // 4. Non-moderator regular user cannot spoof 'system' room events; Moderator Dave can
+  const eveDb = testEnv.authenticatedContext("eve_111").firestore();
+  await assertFails(
+    eveDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_sys_spoof").set({
+      roomId,
+      type: "system",
+      senderId: "eve_111",
+      senderName: "Eve",
+      text: "Fake host promotion",
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    daveDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_sys_mod").set({
+      roomId,
+      type: "system",
+      senderId: "dave_000",
+      senderName: "Dave",
+      text: "Stage notice",
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+
+  // 5. Unbanned user cannot vote on a closed poll
+  const pollId = "poll_closed_1";
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).collection("polls").doc(pollId).set({
+      roomId,
+      question: "Keep singing?",
+      options: ["Yes", "No"],
+      votes: {},
+      createdById: ALICE_UID,
+      createdByName: "Alice",
+      isClosed: true,
+      createdAtMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+  await assertFails(
+    eveDb.collection("voice_rooms").doc(roomId).collection("polls").doc(pollId).update({
+      votes: { eve_111: 0 },
+    })
+  );
+
+  // 6. Host closes the room -> all further listener joins, peers, signals, events, and polls fail
+  await assertSucceeds(
+    aliceDb.collection("voice_rooms").doc(roomId).update({
+      isLive: false,
+      lifecycleState: "ENDED",
+      listenersCount: 0,
+      speakersCount: 0,
+      updatedAt: new Date(),
+    })
+  );
+
+  await assertFails(
+    eveDb.collection("voice_rooms").doc(roomId).update({
+      listenersCount: 1,
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    eveDb.collection("voice_rooms").doc(roomId).collection("peers").doc("eve_111").set({
+      userId: "eve_111",
+      displayName: "Eve",
+      isSpeaker: false,
+      isMuted: true,
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    eveDb.collection("voice_rooms").doc(roomId).collection("signals").doc("sig_ended").set({
+      fromUserId: "eve_111",
+      toUserId: ALICE_UID,
+      type: "offer",
+      sdp: "v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\n",
+      createdAt: new Date(),
+    })
+  );
+  await assertFails(
+    eveDb.collection("voice_rooms").doc(roomId).collection("events").doc("ev_ended").set({
+      roomId,
+      type: "chat",
+      senderId: "eve_111",
+      senderName: "Eve",
+      text: "Hello after end",
+      timestampMs: Date.now(),
+      createdAt: new Date(),
+    })
+  );
+});
